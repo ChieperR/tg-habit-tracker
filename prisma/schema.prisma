@@ -1,0 +1,79 @@
+// Prisma Schema для Telegram бота-трекера привычек
+// Используем SQLite для простоты — не нужен отдельный сервер БД
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// Пользователь бота
+model User {
+  id        Int      @id @default(autoincrement())
+  /// Telegram ID пользователя
+  telegramId BigInt   @unique
+  /// Время утреннего напоминания (формат HH:MM)
+  morningTime String  @default("08:00")
+  /// Время вечернего напоминания (формат HH:MM)
+  eveningTime String  @default("21:00")
+  /// Часовой пояс пользователя (смещение в минутах от UTC), null = не настроен
+  timezoneOffset Int?
+  /// Включены ли утренние напоминания
+  morningEnabled Boolean @default(true)
+  /// Включены ли вечерние напоминания
+  eveningEnabled Boolean @default(true)
+  /// Дата создания аккаунта
+  createdAt DateTime @default(now())
+  
+  /// Привычки пользователя
+  habits Habit[]
+}
+
+/// Привычка
+model Habit {
+  id        Int      @id @default(autoincrement())
+  /// Название привычки
+  name      String
+  /// Эмодзи для привычки
+  emoji     String   @default("✨")
+  /// Тип частоты: "daily" | "interval" | "weekdays"
+  frequencyType String @default("daily")
+  /// Интервал в днях (для frequencyType = "interval")
+  frequencyDays Int  @default(1)
+  /// Дни недели через запятую: "1,2,3" где 0=Вс, 1=Пн, ..., 6=Сб (для frequencyType = "weekdays")
+  weekdays  String?
+  /// Активна ли привычка
+  isActive  Boolean  @default(true)
+  /// Дата создания
+  createdAt DateTime @default(now())
+  /// Дата последнего напоминания
+  lastRemindedAt DateTime?
+  
+  /// Владелец привычки
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId Int
+  
+  /// Логи выполнения
+  logs HabitLog[]
+}
+
+/// Лог выполнения привычки
+model HabitLog {
+  id        Int      @id @default(autoincrement())
+  /// Дата выполнения (только дата, без времени)
+  date      String   // Формат: YYYY-MM-DD
+  /// Выполнена ли привычка
+  completed Boolean  @default(false)
+  /// Когда была сделана отметка
+  markedAt  DateTime @default(now())
+  
+  /// Привычка
+  habit   Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
+  habitId Int
+  
+  /// Уникальный индекс: одна привычка — одна запись на день
+  @@unique([habitId, date])
+}

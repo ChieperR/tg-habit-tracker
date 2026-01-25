@@ -1,0 +1,36 @@
+{
+  "name": "tg-habit-tracker",
+  "version": "1.0.0",
+  "description": "Telegram бот для трекинга привычек",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "habit-tracker"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@grammyjs/conversations": "^2.0.3",
+    "@grammyjs/runner": "^2.0.3",
+    "@prisma/client": "^6.3.0",
+    "date-fns": "^4.1.0",
+    "grammy": "^1.35.0",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.12.0",
+    "@types/node-cron": "^3.0.11",
+    "prisma": "^6.3.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
