@@ -32,9 +32,10 @@ export const createHabitsListKeyboard = (habits: HabitWithTodayStatus[]): Inline
     const status = habit.completedToday ? '✅' : '⬜';
     const dueIndicator = habit.isDueToday ? '' : ' 💤';
     
+    // На кнопке только статус и эмодзи, полное название уже в тексте сообщения
     keyboard
       .text(
-        `${status} ${habit.emoji} ${habit.name}${dueIndicator}`,
+        `${status} ${habit.emoji}${dueIndicator}`,
         serializeCallback({ type: 'habit_toggle', habitId: habit.id })
       )
       .text('🗑', serializeCallback({ type: 'habit_delete', habitId: habit.id }))
@@ -70,9 +71,10 @@ export const createEveningChecklistKeyboard = (habits: HabitWithTodayStatus[]): 
 
   for (const habit of habits) {
     const status = habit.completedToday ? '✅' : '⬜';
+    // На кнопке только статус и эмодзи, полное название уже в тексте сообщения
     keyboard
       .text(
-        `${status} ${habit.emoji} ${habit.name}`,
+        `${status} ${habit.emoji}`,
         serializeCallback({ type: 'habit_toggle', habitId: habit.id })
       )
       .row();

@@ -35,7 +35,19 @@ export const handleHabits = async (ctx: BotContext): Promise<void> => {
   let message = '📝 *Мои привычки*\n\n';
   message += '💤 — не нужно выполнять сегодня\n';
   message += '✅ — выполнено | ⬜ — не выполнено\n\n';
-  message += 'Нажми на привычку, чтобы отметить выполнение:';
+  
+  // Добавляем список привычек с полными названиями
+  if (habits.length > 0) {
+    message += '*Список привычек:*\n';
+    for (const habit of habits) {
+      const status = habit.completedToday ? '✅' : '⬜';
+      const dueIndicator = habit.isDueToday ? '' : ' 💤';
+      message += `${status} ${habit.emoji} ${habit.name}${dueIndicator}\n`;
+    }
+    message += '\n';
+  }
+  
+  message += 'Нажми на кнопку ниже, чтобы отметить выполнение:';
 
   await ctx.reply(message, {
     parse_mode: 'Markdown',
@@ -72,7 +84,19 @@ export const showHabitsList = async (ctx: BotContext): Promise<void> => {
   let message = '📝 *Мои привычки*\n\n';
   message += '💤 — не нужно выполнять сегодня\n';
   message += '✅ — выполнено | ⬜ — не выполнено\n\n';
-  message += 'Нажми на привычку, чтобы отметить выполнение:';
+  
+  // Добавляем список привычек с полными названиями
+  if (habits.length > 0) {
+    message += '*Список привычек:*\n';
+    for (const habit of habits) {
+      const status = habit.completedToday ? '✅' : '⬜';
+      const dueIndicator = habit.isDueToday ? '' : ' 💤';
+      message += `${status} ${habit.emoji} ${habit.name}${dueIndicator}\n`;
+    }
+    message += '\n';
+  }
+  
+  message += 'Нажми на кнопку ниже, чтобы отметить выполнение:';
 
   await safeEditMessage(ctx, message, {
     parse_mode: 'Markdown',
