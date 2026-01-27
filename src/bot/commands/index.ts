@@ -8,3 +8,4 @@ export { handleHelp } from './help.js';
 export { handleHabits, showHabitsList } from './habits.js';
 export { handleStats, showStats } from './stats.js';
 export { handleSettings, showSettings } from './settings.js';
+export { handleDaily } from './daily.js';

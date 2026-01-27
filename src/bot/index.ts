@@ -6,6 +6,7 @@ import { handleHelp } from './commands/help.js';
 import { handleHabits } from './commands/habits.js';
 import { handleStats } from './commands/stats.js';
 import { handleSettings } from './commands/settings.js';
+import { handleDaily } from './commands/daily.js';
 import { handleCallback } from './callbacks/index.js';
 import { 
   addHabitConversation, 
@@ -49,6 +50,12 @@ export const createBot = (token: string): Bot<BotContext> => {
   bot.command('habits', handleHabits);
   bot.command('stats', handleStats);
   bot.command('settings', handleSettings);
+  
+  // DEV команды (только в режиме разработки)
+  if (process.env.NODE_ENV === 'development' || process.env.DEV === 'true') {
+    bot.command('daily', handleDaily);
+    console.log('🔧 DEV режим: команда /daily доступна');
+  }
 
   // Callback queries
   bot.on('callback_query:data', handleCallback);
