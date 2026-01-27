@@ -25,6 +25,10 @@ model User {
   morningEnabled Boolean @default(true)
   /// Включены ли вечерние напоминания
   eveningEnabled Boolean @default(true)
+  /// Дата последнего утреннего напоминания (YYYY-MM-DD)
+  lastMorningReminderDate String?
+  /// Дата последнего вечернего напоминания (YYYY-MM-DD)
+  lastEveningReminderDate String?
   /// Дата создания аккаунта
   createdAt DateTime @default(now())
   

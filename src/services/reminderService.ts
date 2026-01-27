@@ -1,9 +1,9 @@
 import { Bot } from 'grammy';
 import { prisma } from '../db/index.js';
-import { BotContext, FrequencyType, HabitWithTodayStatus } from '../types/index.js';
+import { BotContext, HabitWithTodayStatus } from '../types/index.js';
 import { getTodayHabits, getUserHabitsWithTodayStatus } from './habitService.js';
 import { getUsersForMorningReminder, getUsersForEveningReminder } from './userService.js';
-import { parseTime } from '../utils/date.js';
+import { parseTime, getTodayDate } from '../utils/date.js';
 import { createMainMenuKeyboard, createEveningChecklistKeyboard } from '../bot/keyboards/index.js';
 
 /** Названия дней недели */
@@ -129,6 +129,10 @@ export const sendEveningReminder = async (
 
 /**
  * Проверяет и отправляет напоминания всем пользователям
+ * @description Отправляет напоминание если:
+ * 1. Текущее время >= запланированного времени
+ * 2. Сегодня ещё не отправляли
+ * Это позволяет "догнать" пропущенные напоминания если бот был выключен
  * @param bot - Инстанс бота
  * @param type - Тип напоминания (morning или evening)
  */
@@ -145,6 +149,16 @@ export const checkAndSendReminders = async (
   for (const user of users) {
     // timezoneOffset гарантированно не null (проверяется в запросе)
     const timezoneOffset = user.timezoneOffset as number;
+    const todayDate = getTodayDate(timezoneOffset);
+    
+    // Проверяем, отправляли ли уже сегодня
+    const lastReminderDate = type === 'morning' 
+      ? user.lastMorningReminderDate 
+      : user.lastEveningReminderDate;
+    
+    if (lastReminderDate === todayDate) {
+      continue; // Уже отправляли сегодня
+    }
     
     const { hours: targetHours, minutes: targetMinutes } = parseTime(
       type === 'morning' ? user.morningTime : user.eveningTime
@@ -156,12 +170,24 @@ export const checkAndSendReminders = async (
     const userHours = userLocalTime.getHours();
     const userMinutes = userLocalTime.getMinutes();
 
-    // Проверяем, совпадает ли время (с допуском в 1 минуту)
-    if (userHours === targetHours && Math.abs(userMinutes - targetMinutes) <= 1) {
+    // Текущее время в минутах от начала дня
+    const currentTimeInMinutes = userHours * 60 + userMinutes;
+    const targetTimeInMinutes = targetHours * 60 + targetMinutes;
+
+    // Отправляем если текущее время >= целевого
+    if (currentTimeInMinutes >= targetTimeInMinutes) {
       if (type === 'morning') {
         await sendMorningReminder(bot, user.telegramId, user.id, timezoneOffset);
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { lastMorningReminderDate: todayDate },
+        });
       } else {
         await sendEveningReminder(bot, user.telegramId, user.id, timezoneOffset);
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { lastEveningReminderDate: todayDate },
+        });
       }
     }
   }
