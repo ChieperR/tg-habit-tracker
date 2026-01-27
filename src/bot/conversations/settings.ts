@@ -127,7 +127,7 @@ export const setTimezoneConversation = async (
   if (!telegramId) return;
 
   const user = await conversation.external(() => findOrCreateUser(telegramId));
-  const currentOffset = user.timezoneOffset / 60;
+  const currentOffset = (user.timezoneOffset ?? 180) / 60; // Дефолт UTC+3 если не установлен
   const sign = currentOffset >= 0 ? '+' : '';
 
   await ctx.reply(
