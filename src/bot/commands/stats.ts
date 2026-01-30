@@ -9,7 +9,7 @@ import { createStatsKeyboard } from '../keyboards/index.js';
  */
 export const handleStats = async (ctx: BotContext): Promise<void> => {
   const telegramId = ctx.from?.id;
-  
+
   if (!telegramId) {
     await ctx.reply('❌ Не удалось определить пользователя');
     return;
@@ -20,7 +20,7 @@ export const handleStats = async (ctx: BotContext): Promise<void> => {
 
   const timezoneOffset = user.timezoneOffset ?? undefined;
   const stats = await getUserStats(user.id, timezoneOffset);
-  const message = formatStatsMessage(stats);
+  const message = await formatStatsMessage(stats, user.id, timezoneOffset);
 
   await ctx.reply(message, {
     parse_mode: 'Markdown',
@@ -34,7 +34,7 @@ export const handleStats = async (ctx: BotContext): Promise<void> => {
  */
 export const showStats = async (ctx: BotContext): Promise<void> => {
   const telegramId = ctx.from?.id;
-  
+
   if (!telegramId) {
     return;
   }
@@ -42,7 +42,7 @@ export const showStats = async (ctx: BotContext): Promise<void> => {
   const user = await findOrCreateUser(telegramId);
   const timezoneOffset = user.timezoneOffset ?? undefined;
   const stats = await getUserStats(user.id, timezoneOffset);
-  const message = formatStatsMessage(stats);
+  const message = await formatStatsMessage(stats, user.id, timezoneOffset);
 
   await ctx.editMessageText(message, {
     parse_mode: 'Markdown',

@@ -5,6 +5,7 @@ import { findOrCreateUser, updateUserSettings } from '../../services/userService
 import { toggleHabitCompletion, deleteHabit, getHabitById, getUserHabitsWithTodayStatus } from '../../services/habitService.js';
 import { showHabitsList } from '../commands/habits.js';
 import { showStats } from '../commands/stats.js';
+import { showWeekly, getPrevWeekStart, getNextWeekStart } from '../commands/weekly.js';
 import { showSettings } from '../commands/settings.js';
 import { createMainMenuKeyboard, createDeleteConfirmKeyboard, createHabitsListKeyboard } from '../keyboards/index.js';
 
@@ -74,6 +75,21 @@ export const handleCallback = async (ctx: BotContext): Promise<void> => {
 
       case 'stats':
         await showStats(ctx);
+        await ctx.answerCallbackQuery();
+        break;
+
+      case 'weekly_show':
+        await showWeekly(ctx, action.weekStart);
+        await ctx.answerCallbackQuery();
+        break;
+
+      case 'weekly_prev':
+        await showWeekly(ctx, getPrevWeekStart(action.weekStart));
+        await ctx.answerCallbackQuery();
+        break;
+
+      case 'weekly_next':
+        await showWeekly(ctx, getNextWeekStart(action.weekStart));
         await ctx.answerCallbackQuery();
         break;
 

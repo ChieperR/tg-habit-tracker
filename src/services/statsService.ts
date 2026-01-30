@@ -1,6 +1,7 @@
 import { prisma } from '../db/index.js';
 import { HabitStats, UserStats } from '../types/index.js';
 import { getLastNDays, getTodayDate } from '../utils/date.js';
+import { format, subDays, startOfWeek, addDays, parse } from 'date-fns';
 
 /**
  * Сервис для работы со статистикой
@@ -20,7 +21,7 @@ export const calculateCurrentStreak = async (
   timezoneOffset: number = 180
 ): Promise<number> => {
   const today = getTodayDate(timezoneOffset);
-  
+
   // Получаем все успешные выполнения, отсортированные по дате (новые первые)
   const completedLogs = await prisma.habitLog.findMany({
     where: { habitId, completed: true },
@@ -80,7 +81,7 @@ export const calculateMaxStreak = async (
   for (let i = 1; i < completedLogs.length; i++) {
     const prevLog = completedLogs[i - 1];
     const currentLog = completedLogs[i];
-    
+
     if (!prevLog || !currentLog) continue;
 
     const prevDate = new Date(prevLog.date);
@@ -115,10 +116,10 @@ export const calculateCompletionRate = async (
   timezoneOffset: number = 180
 ): Promise<number> => {
   const lastNDays = getLastNDays(days, timezoneOffset);
-  
+
   // Сколько раз привычка должна была быть выполнена
   const expectedCompletions = Math.ceil(days / frequencyDays);
-  
+
   const completedCount = await prisma.habitLog.count({
     where: {
       habitId,
@@ -209,11 +210,102 @@ export const getUserStats = async (
 };
 
 /**
+ * Генерирует график активности в стиле GitHub contributions
+ * @param userId - ID пользователя
+ * @param timezoneOffset - Смещение часового пояса
+ * @returns Строка с графиком активности
+ */
+export const generateActivityGraph = async (
+  userId: number,
+  timezoneOffset: number = 180
+): Promise<string> => {
+  const today = getTodayDate(timezoneOffset);
+  const todayDate = parse(today, 'yyyy-MM-dd', new Date());
+
+  // Последние 91 день (13 недель)
+  const daysCount = 91;
+  const startDate = subDays(todayDate, daysCount - 1);
+
+  // Получаем все даты с выполнением хотя бы одной привычки
+  const completedLogs = await prisma.habitLog.findMany({
+    where: {
+      habit: { userId, isActive: true },
+      completed: true,
+      date: {
+        gte: format(startDate, 'yyyy-MM-dd'),
+        lte: today,
+      },
+    },
+    select: { date: true },
+  });
+
+  // Создаём Set для быстрой проверки (день активен если хотя бы одна привычка выполнена)
+  const activeDates = new Set(completedLogs.map(log => log.date));
+
+  // Создаём матрицу активности (13 недель × 7 дней)
+  // График: недели идут слева направо, дни недели сверху вниз
+  const weeks = 13;
+  const grid: boolean[][] = [];
+
+  // Находим начало первой недели (понедельник)
+  const firstMonday = startOfWeek(startDate, { weekStartsOn: 1 });
+
+  // Заполняем сетку: каждая строка = неделя, каждая колонка = день недели
+  for (let week = 0; week < weeks; week++) {
+    const weekRow: boolean[] = [];
+    for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
+      const checkDate = addDays(firstMonday, week * 7 + dayOfWeek);
+      const dateStr = format(checkDate, 'yyyy-MM-dd');
+
+      // Проверяем, не выходим ли за пределы сегодня и не раньше startDate
+      if (checkDate >= startDate && checkDate <= todayDate) {
+        weekRow.push(activeDates.has(dateStr));
+      } else {
+        weekRow.push(false);
+      }
+    }
+    grid.push(weekRow);
+  }
+
+  // Заголовок с диапазоном дат (короткие названия месяцев)
+  const monthNames = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+  const startDay = startDate.getDate();
+  const startMonth = monthNames[startDate.getMonth()];
+  const endDay = todayDate.getDate();
+  const endMonth = monthNames[todayDate.getMonth()];
+
+  let graph = `📊 *Активность* (${startDay} ${startMonth} — ${endDay} ${endMonth})\n\n`;
+
+  const weekdayLabels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+
+  for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
+    const dayLabel = `\`${weekdayLabels[dayOfWeek] ?? ''}\``;
+    let row = `${dayLabel} `;
+
+    for (let week = 0; week < weeks; week++) {
+      const isActive = grid[week]?.[dayOfWeek] ?? false;
+      row += isActive ? '🟩' : '⬜';
+    }
+    graph += row + '\n';
+  }
+
+  graph += '\n🟩 — выполнено  ⬜ — нет';
+
+  return graph;
+};
+
+/**
  * Форматирует статистику для отображения в сообщении
  * @param stats - Статистика пользователя
+ * @param userId - ID пользователя в БД
+ * @param timezoneOffset - Смещение часового пояса
  * @returns Отформатированное сообщение
  */
-export const formatStatsMessage = (stats: UserStats): string => {
+export const formatStatsMessage = async (
+  stats: UserStats,
+  userId: number,
+  timezoneOffset: number = 180
+): Promise<string> => {
   if (stats.activeHabits === 0) {
     return '📊 *Статистика*\n\nУ тебя пока нет привычек. Добавь первую! ✨';
   }
@@ -221,12 +313,19 @@ export const formatStatsMessage = (stats: UserStats): string => {
   let message = '📊 *Твоя статистика*\n\n';
   message += `📝 Активных привычек: *${stats.activeHabits}*\n`;
   message += `✅ Всего выполнений: *${stats.totalCompletions}*\n\n`;
+
+  // Добавляем график активности
+  const graph = await generateActivityGraph(userId, timezoneOffset);
+  message += graph + '\n';
   message += '━━━━━━━━━━━━━━━\n\n';
 
   for (const habit of stats.habitStats) {
+    const recordSuffix =
+      habit.currentStreak < habit.maxStreak
+        ? ` (Рекорд: ${habit.maxStreak})`
+        : '';
     message += `${habit.emoji} *${habit.name}*\n`;
-    message += `   🔥 Текущий streak: ${habit.currentStreak} дн.\n`;
-    message += `   🏆 Лучший streak: ${habit.maxStreak} дн.\n`;
+    message += `   🔥 Стрик: ${habit.currentStreak} дн.${recordSuffix}\n`;
     message += `   📈 За 30 дней: ${habit.completionRate}%\n\n`;
   }
 

@@ -3,7 +3,16 @@
  * @module utils/date
  */
 
-import { format, subDays, differenceInDays, getDay, parse, eachDayOfInterval } from 'date-fns';
+import {
+  format,
+  subDays,
+  addWeeks,
+  differenceInDays,
+  getDay,
+  parse,
+  eachDayOfInterval,
+  startOfWeek,
+} from 'date-fns';
 
 /**
  * Получает текущую дату в часовом поясе пользователя
@@ -142,4 +151,69 @@ export const getLastNDays = (days: number, timezoneOffset: number = 180): string
 export const formatDateForDisplay = (dateStr: string): string => {
   const date = parse(dateStr, 'yyyy-MM-dd', new Date());
   return format(date, 'd MMMM', { locale: undefined }); // Можно добавить ru locale
+};
+
+/**
+ * Параметры для проверки, была ли привычка запланирована на дату
+ */
+export type HabitDueOnDateParams = {
+  frequencyType: 'daily' | 'interval' | 'weekdays';
+  frequencyDays: number;
+  weekdays: string | null;
+  /** Для interval: дата первого выполнения или создания привычки (YYYY-MM-DD) */
+  referenceDate: string | null;
+  /** Проверяемая дата (YYYY-MM-DD) */
+  dateStr: string;
+};
+
+/**
+ * Проверяет, была ли привычка запланирована на указанную дату
+ * @param params - Параметры привычки и дата
+ * @returns true если в этот день привычка должна была быть выполнена
+ */
+export const isHabitDueOnDate = (params: HabitDueOnDateParams): boolean => {
+  const { frequencyType, frequencyDays, weekdays, referenceDate, dateStr } = params;
+
+  switch (frequencyType) {
+    case 'daily':
+      return true;
+
+    case 'interval': {
+      if (!referenceDate) {
+        return true;
+      }
+      const ref = parse(referenceDate, 'yyyy-MM-dd', new Date());
+      const date = parse(dateStr, 'yyyy-MM-dd', new Date());
+      const diffDays = differenceInDays(date, ref);
+      return diffDays >= 0 && diffDays % frequencyDays === 0;
+    }
+
+    case 'weekdays': {
+      if (!weekdays) {
+        return false;
+      }
+      const dayOfWeek = getDayOfWeek(dateStr);
+      const allowedDays = weekdays.split(',').map(Number);
+      return allowedDays.includes(dayOfWeek);
+    }
+
+    default:
+      return true;
+  }
+};
+
+/**
+ * Возвращает понедельник текущей (или смещённой) недели в часовом поясе пользователя
+ * @param timezoneOffset - Смещение в минутах
+ * @param offsetWeeks - Смещение в неделях (0 = текущая, -1 = прошлая, 1 = следующая)
+ * @returns Дата понедельника в формате YYYY-MM-DD
+ */
+export const getWeekStartMonday = (
+  timezoneOffset: number = 180,
+  offsetWeeks: number = 0
+): string => {
+  const now = getNowInTimezone(timezoneOffset);
+  const monday = startOfWeek(now, { weekStartsOn: 1 });
+  const week = offsetWeeks === 0 ? monday : addWeeks(monday, offsetWeeks);
+  return format(week, 'yyyy-MM-dd');
 };

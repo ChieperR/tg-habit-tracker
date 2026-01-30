@@ -26,6 +26,12 @@ export const serializeCallback = (action: CallbackAction): string => {
       return `h:det:${action.habitId}`;
     case 'stats':
       return 's:main';
+    case 'weekly_show':
+      return action.weekStart ? `s:week:${action.weekStart}` : 's:week';
+    case 'weekly_prev':
+      return `s:week:prev:${action.weekStart}`;
+    case 'weekly_next':
+      return `s:week:next:${action.weekStart}`;
     case 'settings':
       return 'set:main';
     case 'settings_morning':
@@ -83,9 +89,22 @@ export const parseCallback = (data: string): CallbackAction | null => {
       }
       break;
     }
-    case 's':
-      if (parts[1] === 'main') return { type: 'stats' };
+    case 's': {
+      const sub = parts[1];
+      if (sub === 'main') return { type: 'stats' };
+      if (sub === 'week') {
+        const dir = parts[2];
+        const weekStart = parts[3];
+        if (dir === 'prev' && weekStart) return { type: 'weekly_prev', weekStart };
+        if (dir === 'next' && weekStart) return { type: 'weekly_next', weekStart };
+        const weekStartArg = parts[2];
+        if (weekStartArg && weekStartArg !== 'prev' && weekStartArg !== 'next') {
+          return { type: 'weekly_show', weekStart: weekStartArg };
+        }
+        return { type: 'weekly_show' };
+      }
       break;
+    }
     case 'set': {
       const subAction = parts[1];
       switch (subAction) {

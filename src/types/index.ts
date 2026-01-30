@@ -116,7 +116,7 @@ export type UserSettings = {
 /**
  * Callback data для inline кнопок
  */
-export type CallbackAction = 
+export type CallbackAction =
   | { type: 'habits_list' }
   | { type: 'habit_add' }
   | { type: 'habit_toggle'; habitId: number }
@@ -124,6 +124,9 @@ export type CallbackAction =
   | { type: 'habit_confirm_delete'; habitId: number }
   | { type: 'habit_details'; habitId: number }
   | { type: 'stats' }
+  | { type: 'weekly_show'; weekStart?: string }
+  | { type: 'weekly_prev'; weekStart: string }
+  | { type: 'weekly_next'; weekStart: string }
   | { type: 'settings' }
   | { type: 'settings_morning'; time: string }
   | { type: 'settings_evening'; time: string }

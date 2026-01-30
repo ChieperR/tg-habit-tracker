@@ -128,7 +128,22 @@ export const createSettingsKeyboard = (params: SettingsKeyboardParams): InlineKe
  */
 export const createStatsKeyboard = (): InlineKeyboard => {
   return new InlineKeyboard()
+    .text('📅 Неделя', serializeCallback({ type: 'weekly_show' }))
+    .row()
     .text('◀️ Назад', serializeCallback({ type: 'back_to_menu' }));
+};
+
+/**
+ * Создаёт клавиатуру недельной статистики (пагинация по неделям)
+ * @param weekStartMonday - Понедельник текущей отображаемой недели (YYYY-MM-DD)
+ * @returns Inline клавиатура
+ */
+export const createWeeklyKeyboard = (weekStartMonday: string): InlineKeyboard => {
+  return new InlineKeyboard()
+    .text('◀ Пред', serializeCallback({ type: 'weekly_prev', weekStart: weekStartMonday }))
+    .text('След ▶', serializeCallback({ type: 'weekly_next', weekStart: weekStartMonday }))
+    .row()
+    .text('◀️ Назад', serializeCallback({ type: 'stats' }));
 };
 
 /**
