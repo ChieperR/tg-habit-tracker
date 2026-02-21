@@ -121,6 +121,8 @@ export const getWeekStatesForHabit = async (
     })
     .then((logs) => new Set(logs.map((l) => l.date)));
 
+  const habitCreatedDate = format(habit.createdAt, 'yyyy-MM-dd');
+
   const states: DayState[] = [];
   for (let d = 0; d < 7; d++) {
     const date = addDays(monday, d);
@@ -133,6 +135,9 @@ export const getWeekStatesForHabit = async (
       states.push('future');
     } else if (completed) {
       states.push('done');
+    } else if (dateStr < habitCreatedDate) {
+      // День до создания привычки — не могло быть выполнено
+      states.push('off');
     } else if (due) {
       states.push('missed');
     } else {
@@ -202,7 +207,7 @@ export const getWeeklyData = async (
     }
   }
 
-  text += '🟢 — Сделал  🔴 — Пропустил  💤 — Выходной  ⚪ — ещё не наступило';
+  text += '🟢 — Сделал  🔴 — Пропустил  ⏸️ — Выходной  ⚪ — ещё не наступило';
 
   return { text, rows };
 };
