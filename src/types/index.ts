@@ -8,6 +8,8 @@ import { type Conversation, type ConversationFlavor } from '@grammyjs/conversati
 export type SessionData = {
   /** ID пользователя в нашей БД */
   dbUserId?: number;
+  /** Ожидаем от пользователя геолокацию или ввод часового пояса */
+  awaitingTimezone?: boolean;
 };
 
 /** Базовый контекст с сессией */

@@ -8,11 +8,12 @@ import { handleStats } from './commands/stats.js';
 import { handleSettings } from './commands/settings.js';
 import { handleDaily } from './commands/daily.js';
 import { handleCallback } from './callbacks/index.js';
-import { 
-  addHabitConversation, 
-  setMorningTimeConversation, 
-  setEveningTimeConversation, 
-  setTimezoneConversation 
+import { handleTimezoneInput } from './handlers/timezoneInput.js';
+import {
+  addHabitConversation,
+  setMorningTimeConversation,
+  setEveningTimeConversation,
+  setTimezoneConversation,
 } from './conversations/index.js';
 
 /**
@@ -56,6 +57,14 @@ export const createBot = (token: string): Bot<BotContext> => {
     bot.command('daily', handleDaily);
     console.log('🔧 DEV режим: команда /daily доступна');
   }
+
+  // Ожидание ввода часового пояса (после /start без timezone)
+  bot.on('message', async (ctx, next) => {
+    const handled = await handleTimezoneInput(ctx);
+    if (!handled) {
+      await next();
+    }
+  });
 
   // Callback queries
   bot.on('callback_query:data', handleCallback);

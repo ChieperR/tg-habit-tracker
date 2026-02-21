@@ -147,8 +147,8 @@ export const checkAndSendReminders = async (
   const now = new Date();
 
   for (const user of users) {
-    // timezoneOffset гарантированно не null (проверяется в запросе)
-    const timezoneOffset = user.timezoneOffset as number;
+    // Если часовой пояс не задан — считаем МСК (UTC+3)
+    const timezoneOffset = user.timezoneOffset ?? 180;
     const todayDate = getTodayDate(timezoneOffset);
     
     // Проверяем, отправляли ли уже сегодня

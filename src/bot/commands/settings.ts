@@ -35,16 +35,22 @@ export const handleSettings = async (ctx: BotContext): Promise<void> => {
 /**
  * Форматирует сообщение настроек
  */
-const formatSettingsMessage = (timezoneOffset: number | null): string => {
-  const tzWarning = timezoneOffset === null 
-    ? '\n\n⚠️ *Часовой пояс не настроен!* Напоминания не будут работать корректно.' 
-    : '';
-  
+export const formatSettingsMessage = (timezoneOffset: number | null): string => {
+  const tzBlock =
+    timezoneOffset === null
+      ? `
+
+⚠️ *Часовой пояс не указан*
+Сейчас используется Москва (UTC+3). Чтобы напоминания приходили в твоё время — нажми «Часовой пояс» ниже и укажи его (геолокация или вручную).
+`
+      : '';
+
   return `
 ⚙️ *Настройки*
-
-🔔/🔕 — нажми чтобы включить/выключить
-✏️ — нажми чтобы изменить время${tzWarning}
+${tzBlock}
+🔔/🔕 — включить/выключить напоминания
+✏️ — изменить время
+🌍 — часовой пояс (гео или вручную)
   `.trim();
 };
 

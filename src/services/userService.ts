@@ -66,27 +66,23 @@ export const updateUserSettings = async (
 
 /**
  * Получает пользователей для утренних напоминаний
+ * @description Включает пользователей без часового пояса — для них используется МСК (UTC+3)
  * @returns Массив пользователей
  */
 export const getUsersForMorningReminder = async (): Promise<User[]> => {
   return prisma.user.findMany({
-    where: { 
-      morningEnabled: true,
-      timezoneOffset: { not: null },
-    },
+    where: { morningEnabled: true },
   });
 };
 
 /**
  * Получает пользователей для вечерних напоминаний
+ * @description Включает пользователей без часового пояса — для них используется МСК (UTC+3)
  * @returns Массив пользователей
  */
 export const getUsersForEveningReminder = async (): Promise<User[]> => {
   return prisma.user.findMany({
-    where: { 
-      eveningEnabled: true,
-      timezoneOffset: { not: null },
-    },
+    where: { eveningEnabled: true },
   });
 };
 

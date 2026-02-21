@@ -1,7 +1,18 @@
+import { InlineKeyboard, Keyboard } from 'grammy';
 import { BotContext, BotConversation } from '../../types/index.js';
 import { findOrCreateUser, updateUserSettings } from '../../services/userService.js';
+import {
+  getTimezoneOffsetFromLocation,
+  parseTimezoneFromText,
+} from '../../utils/timezoneFromLocation.js';
 import { createMainMenuKeyboard, createSettingsKeyboard } from '../keyboards/index.js';
+import { formatSettingsMessage } from '../commands/settings.js';
 import { safeEditMessage } from '../../utils/telegram.js';
+
+const removeKeyboard: { remove_keyboard: true } = { remove_keyboard: true };
+
+/** Callback для отмены ввода часового пояса (обрабатывается внутри диалога) */
+const TZ_CANCEL_CALLBACK = 'settings:tz_cancel';
 
 /**
  * Диалог изменения утреннего времени
@@ -117,7 +128,7 @@ export const setEveningTimeConversation = async (
 };
 
 /**
- * Conversation для изменения часового пояса
+ * Conversation для изменения часового пояса (геолокация или ввод вручную)
  */
 export const setTimezoneConversation = async (
   conversation: BotConversation,
@@ -127,40 +138,83 @@ export const setTimezoneConversation = async (
   if (!telegramId) return;
 
   const user = await conversation.external(() => findOrCreateUser(telegramId));
-  const currentOffset = (user.timezoneOffset ?? 180) / 60; // Дефолт UTC+3 если не установлен
+  const currentOffset = (user.timezoneOffset ?? 180) / 60;
   const sign = currentOffset >= 0 ? '+' : '';
 
+  const cancelKeyboard = new InlineKeyboard().text('❌ Отмена', TZ_CANCEL_CALLBACK);
+  const replyKeyboard = new Keyboard()
+    .requestLocation('📍 Определить по геолокации')
+    .oneTime()
+    .resized();
+
   await ctx.reply(
-    `🌍 *Часовой пояс*\n\nТекущий: *UTC${sign}${currentOffset}*\n\nВведи свой часовой пояс:\n• Число от -12 до +14\n• Например: +3 (Москва), +0 (Лондон), -5 (Нью-Йорк)`,
-    { parse_mode: 'Markdown' }
+    `🌍 *Часовой пояс*\n\nТекущий: *UTC${sign}${currentOffset}*\n\nОтправь геолокацию (второе сообщение ниже) или введи вручную:\n• Число от -12 до +14 (например: 3, +0, -5)\n• Или в формате UTC+3 / UTC-5`,
+    { parse_mode: 'Markdown', reply_markup: cancelKeyboard }
   );
+  await ctx.reply('Или нажми кнопку ниже для геолокации:', {
+    reply_markup: replyKeyboard,
+  });
 
-  const response = await conversation.waitFor('message:text');
-  const input = response.message.text.trim().replace(',', '.');
-
-  if (input.startsWith('/')) {
-    await ctx.reply('❌ Отменено', { reply_markup: createMainMenuKeyboard() });
+  const response = await conversation.wait();
+  if (response.callbackQuery?.data === TZ_CANCEL_CALLBACK) {
+    await response.answerCallbackQuery('❌ Отменено');
+    const freshUser = await conversation.external(() => findOrCreateUser(telegramId!));
+    await ctx.reply('↩️ Возврат в настройки', { reply_markup: removeKeyboard });
+    await ctx.reply(formatSettingsMessage(freshUser.timezoneOffset), {
+      parse_mode: 'Markdown',
+      reply_markup: createSettingsKeyboard({
+        morningTime: freshUser.morningTime,
+        eveningTime: freshUser.eveningTime,
+        morningEnabled: freshUser.morningEnabled,
+        eveningEnabled: freshUser.eveningEnabled,
+        timezoneOffset: freshUser.timezoneOffset,
+      }),
+    });
     return;
   }
 
-  const offset = parseFloat(input);
-  
-  if (isNaN(offset) || offset < -12 || offset > 14) {
+  const msg = response.message;
+  if (!msg) {
+    await ctx.reply('Отправь геолокацию или введи часовой пояс.', {
+      reply_markup: removeKeyboard,
+    });
+    return;
+  }
+
+  if (msg.text?.startsWith('/')) {
+    await ctx.reply('❌ Отменено', { reply_markup: removeKeyboard });
+    return;
+  }
+
+  let offsetMinutes: number | null = null;
+
+  if (msg.location) {
+    offsetMinutes = getTimezoneOffsetFromLocation(
+      msg.location.latitude,
+      msg.location.longitude
+    );
+  } else if (msg.text) {
+    offsetMinutes = parseTimezoneFromText(msg.text);
+  }
+
+  if (offsetMinutes === null) {
     await ctx.reply(
-      '❌ Неверный часовой пояс. Введи число от -12 до +14',
-      { reply_markup: createMainMenuKeyboard() }
+      '❌ Не удалось определить часовой пояс. Отправь геолокацию (кнопка ниже) или введи число от -12 до +14.'
     );
     return;
   }
 
-  const offsetMinutes = Math.round(offset * 60);
-  await conversation.external(() => 
+  await conversation.external(() =>
     updateUserSettings(user.id, { timezoneOffset: offsetMinutes })
   );
 
-  const newSign = offset >= 0 ? '+' : '';
+  const hours = offsetMinutes / 60;
+  const newSign = hours >= 0 ? '+' : '';
   await ctx.reply(
-    `✅ Часовой пояс установлен: *UTC${newSign}${offset}*`,
-    { parse_mode: 'Markdown', reply_markup: createMainMenuKeyboard() }
+    `✅ Часовой пояс установлен: *UTC${newSign}${hours}*`,
+    {
+      parse_mode: 'Markdown',
+      reply_markup: removeKeyboard,
+    }
   );
 };
