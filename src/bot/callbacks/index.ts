@@ -7,7 +7,7 @@ import { showHabitsList } from '../commands/habits.js';
 import { showStats } from '../commands/stats.js';
 import { showWeekly, getPrevWeekStart, getNextWeekStart } from '../commands/weekly.js';
 import { showSettings } from '../commands/settings.js';
-import { createMainMenuKeyboard, createDeleteConfirmKeyboard, createHabitsListKeyboard } from '../keyboards/index.js';
+import { createMainMenuKeyboard, createDeleteConfirmKeyboard, createHabitsListKeyboard, createEveningChecklistKeyboard } from '../keyboards/index.js';
 
 /**
  * Обработчик callback запросов
@@ -62,7 +62,7 @@ export const handleCallback = async (ctx: BotContext): Promise<void> => {
         break;
 
       case 'habit_toggle':
-        await handleHabitToggle(ctx, action.habitId);
+        await handleHabitToggle(ctx, action.habitId, action.source);
         break;
 
       case 'habit_delete':
@@ -191,8 +191,9 @@ const showMainMenu = async (ctx: BotContext): Promise<void> => {
 
 /**
  * Переключает статус выполнения привычки
+ * @param source - Источник вызова ('evening_reminder' или undefined для списка привычек)
  */
-const handleHabitToggle = async (ctx: BotContext, habitId: number): Promise<void> => {
+const handleHabitToggle = async (ctx: BotContext, habitId: number, source?: 'evening_reminder'): Promise<void> => {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
 
@@ -207,26 +208,48 @@ const handleHabitToggle = async (ctx: BotContext, habitId: number): Promise<void
   const timezoneOffset = user.timezoneOffset ?? 0;
   const newStatus = await toggleHabitCompletion(habitId, timezoneOffset);
   const statusText = newStatus ? '✅ Выполнено!' : '⬜ Отменено';
-  
+
   await safeAnswerCallback(ctx, statusText);
 
   const habits = await getUserHabitsWithTodayStatus(user.id, timezoneOffset);
-  
+
+  if (source === 'evening_reminder') {
+    const todayHabits = habits.filter((h) => h.isDueToday);
+    const allCompleted = todayHabits.every((h) => h.completedToday);
+
+    let message = '🌙 *Время подвести итоги дня!*\n\n';
+    if (allCompleted) {
+      message += '🎉 Все привычки выполнены! Так держать! 💪\n\n';
+    } else {
+      message += 'Отметь выполненные привычки:\n\n';
+    }
+    for (const h of todayHabits) {
+      const status = h.completedToday ? '✅' : '⬜';
+      message += `${status} ${h.emoji} ${h.name}\n`;
+    }
+
+    await safeEditMessage(ctx, message, {
+      parse_mode: 'Markdown',
+      reply_markup: createEveningChecklistKeyboard(todayHabits),
+    });
+    return;
+  }
+
   let message = '📝 *Мои привычки*\n\n';
   message += '💤 — не нужно выполнять сегодня\n';
   message += '✅ — выполнено | ⬜ — не выполнено\n\n';
-  
+
   // Добавляем список привычек с полными названиями
   if (habits.length > 0) {
     message += '*Список привычек:*\n';
-    for (const habit of habits) {
-      const status = habit.completedToday ? '✅' : '⬜';
-      const dueIndicator = habit.isDueToday ? '' : ' 💤';
-      message += `${status} ${habit.emoji} ${habit.name}${dueIndicator}\n`;
+    for (const h of habits) {
+      const status = h.completedToday ? '✅' : '⬜';
+      const dueIndicator = h.isDueToday ? '' : ' 💤';
+      message += `${status} ${h.emoji} ${h.name}${dueIndicator}\n`;
     }
     message += '\n';
   }
-  
+
   message += 'Нажми на кнопку ниже, чтобы отметить выполнение:';
 
   await safeEditMessage(ctx, message, {

@@ -142,7 +142,9 @@ export const getUserHabitsWithTodayStatus = async (
       const completedToday = habit.logs[0]?.completed ?? false;
       const frequencyType = habit.frequencyType as FrequencyType;
       
-      const isDueToday = isHabitDueToday({
+      // Если привычка уже выполнена сегодня — она всегда isDueToday,
+      // независимо от интервала (иначе после отметки показывалась бы с 💤)
+      const isDueToday = completedToday || isHabitDueToday({
         frequencyType,
         frequencyDays: habit.frequencyDays,
         weekdays: habit.weekdays,

@@ -17,7 +17,9 @@ export const serializeCallback = (action: CallbackAction): string => {
     case 'habit_add':
       return 'h:add';
     case 'habit_toggle':
-      return `h:tog:${action.habitId}`;
+      return action.source === 'evening_reminder'
+        ? `h:tog:${action.habitId}:er`
+        : `h:tog:${action.habitId}`;
     case 'habit_delete':
       return `h:del:${action.habitId}`;
     case 'habit_confirm_delete':
@@ -69,7 +71,8 @@ export const parseCallback = (data: string): CallbackAction | null => {
         case 'tog': {
           const habitId = parseInt(parts[2] ?? '', 10);
           if (isNaN(habitId)) return null;
-          return { type: 'habit_toggle', habitId };
+          const source = parts[3] === 'er' ? 'evening_reminder' as const : undefined;
+          return { type: 'habit_toggle', habitId, source };
         }
         case 'del': {
           const habitId = parseInt(parts[2] ?? '', 10);

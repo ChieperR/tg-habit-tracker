@@ -75,7 +75,7 @@ export const createEveningChecklistKeyboard = (habits: HabitWithTodayStatus[]): 
     keyboard
       .text(
         `${status} ${habit.emoji}`,
-        serializeCallback({ type: 'habit_toggle', habitId: habit.id })
+        serializeCallback({ type: 'habit_toggle', habitId: habit.id, source: 'evening_reminder' })
       )
       .row();
   }
