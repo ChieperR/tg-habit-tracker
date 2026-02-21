@@ -102,19 +102,14 @@ export const sendEveningReminder = async (
   const allCompleted = todayHabits.every((h) => h.completedToday);
 
   let message = '🌙 *Время подвести итоги дня!*\n\n';
-
   if (allCompleted) {
-    message += '🎉 Отлично! Все привычки выполнены!\n\n';
-    for (const habit of todayHabits) {
-      message += `✅ ${habit.emoji} ${habit.name}\n`;
-    }
-    message += '\nТак держать! 💪';
+    message += '🎉 Все привычки выполнены! Так держать! 💪\n\n';
   } else {
     message += 'Отметь выполненные привычки:\n\n';
-    for (const habit of todayHabits) {
-      const status = habit.completedToday ? '✅' : '⬜';
-      message += `${status} ${habit.emoji} ${habit.name}\n`;
-    }
+  }
+  for (const habit of todayHabits) {
+    const status = habit.completedToday ? '✅' : '⬜';
+    message += `${status} ${habit.emoji} ${habit.name}\n`;
   }
 
   try {
