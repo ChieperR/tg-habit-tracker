@@ -1,7 +1,8 @@
 import { Habit, HabitLog } from '@prisma/client';
+import { format } from 'date-fns';
 import { prisma } from '../db/index.js';
 import { CreateHabitInput, FrequencyType, HabitWithTodayStatus } from '../types/index.js';
-import { getTodayDate, isHabitDueToday } from '../utils/date.js';
+import { getTodayDate, isHabitDueToday, isHabitDueOnDate } from '../utils/date.js';
 
 /**
  * Сервис для работы с привычками
@@ -76,20 +77,21 @@ export const getHabitLog = async (habitId: number, date: string): Promise<HabitL
 };
 
 /**
- * Переключает статус выполнения привычки за сегодня
+ * Переключает статус выполнения привычки за указанную дату (по умолчанию — сегодня)
  * @param habitId - ID привычки
  * @param timezoneOffset - Смещение часового пояса
+ * @param date - Дата в формате YYYY-MM-DD; если не передана — используется сегодня
  * @returns Новый статус (true = выполнено)
  */
 export const toggleHabitCompletion = async (
   habitId: number,
-  timezoneOffset: number = 180
+  timezoneOffset: number = 180,
+  date?: string
 ): Promise<boolean> => {
-  const today = getTodayDate(timezoneOffset);
-  const existingLog = await getHabitLog(habitId, today);
+  const targetDate = date ?? getTodayDate(timezoneOffset);
+  const existingLog = await getHabitLog(habitId, targetDate);
 
   if (existingLog) {
-    // Переключаем статус
     const updated = await prisma.habitLog.update({
       where: { id: existingLog.id },
       data: { completed: !existingLog.completed, markedAt: new Date() },
@@ -97,11 +99,10 @@ export const toggleHabitCompletion = async (
     return updated.completed;
   }
 
-  // Создаём новый лог как выполненный
   await prisma.habitLog.create({
     data: {
       habitId,
-      date: today,
+      date: targetDate,
       completed: true,
     },
   });
@@ -166,6 +167,66 @@ export const getUserHabitsWithTodayStatus = async (
   );
 
   return habitsWithDueStatus;
+};
+
+/**
+ * Получает привычки пользователя со статусом на произвольную дату.
+ * Использует isHabitDueOnDate (по расписанию) вместо isHabitDueToday.
+ * @param userId - ID пользователя в БД
+ * @param date - Целевая дата (YYYY-MM-DD)
+ * @returns Массив привычек со статусом на указанную дату
+ */
+export const getUserHabitsWithDateStatus = async (
+  userId: number,
+  date: string
+): Promise<HabitWithTodayStatus[]> => {
+  const habits = await prisma.habit.findMany({
+    where: { userId, isActive: true },
+    include: {
+      logs: {
+        where: { date },
+        take: 1,
+      },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const habitsWithStatus = await Promise.all(
+    habits.map(async (habit) => {
+      const firstCompleted = await prisma.habitLog.findFirst({
+        where: { habitId: habit.id, completed: true },
+        orderBy: { date: 'asc' },
+      });
+
+      const completed = habit.logs[0]?.completed ?? false;
+      const frequencyType = habit.frequencyType as FrequencyType;
+      const habitCreatedDate = format(habit.createdAt, 'yyyy-MM-dd');
+      const referenceDate = firstCompleted?.date ?? habitCreatedDate;
+
+      const isDue = date < habitCreatedDate
+        ? false
+        : completed || isHabitDueOnDate({
+            frequencyType,
+            frequencyDays: habit.frequencyDays,
+            weekdays: habit.weekdays,
+            referenceDate,
+            dateStr: date,
+          });
+
+      return {
+        id: habit.id,
+        name: habit.name,
+        emoji: habit.emoji,
+        frequencyType,
+        frequencyDays: habit.frequencyDays,
+        weekdays: habit.weekdays,
+        completedToday: completed,
+        isDueToday: isDue,
+      };
+    })
+  );
+
+  return habitsWithStatus;
 };
 
 /**

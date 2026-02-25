@@ -120,8 +120,9 @@ export type UserSettings = {
  */
 export type CallbackAction =
   | { type: 'habits_list' }
+  | { type: 'habits_day'; date: string }
   | { type: 'habit_add' }
-  | { type: 'habit_toggle'; habitId: number; source?: 'evening_reminder' }
+  | { type: 'habit_toggle'; habitId: number; date?: string; source?: 'evening_reminder' }
   | { type: 'habit_delete'; habitId: number }
   | { type: 'habit_confirm_delete'; habitId: number }
   | { type: 'habit_details'; habitId: number }
