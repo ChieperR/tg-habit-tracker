@@ -6,6 +6,7 @@
 import {
   format,
   subDays,
+  addDays,
   addWeeks,
   differenceInDays,
   getDay,
@@ -216,4 +217,69 @@ export const getWeekStartMonday = (
   const monday = startOfWeek(now, { weekStartsOn: 1 });
   const week = offsetWeeks === 0 ? monday : addWeeks(monday, offsetWeeks);
   return format(week, 'yyyy-MM-dd');
+};
+
+const MONTH_NAMES_RU = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+const WEEKDAY_NAMES_RU = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+
+/**
+ * Форматирует дату для заголовка сообщения с привычками
+ * @param dateStr - Дата в формате YYYY-MM-DD
+ * @param todayDate - Сегодняшняя дата в формате YYYY-MM-DD
+ * @returns «Сегодня, 25 фев» / «Вчера, 24 фев» / «23 фев, Ср»
+ */
+export const formatDayHeader = (dateStr: string, todayDate: string): string => {
+  const date = parse(dateStr, 'yyyy-MM-dd', new Date());
+  const day = date.getDate();
+  const month = MONTH_NAMES_RU[date.getMonth()];
+
+  if (dateStr === todayDate) return `Сегодня, ${day} ${month}`;
+
+  const today = parse(todayDate, 'yyyy-MM-dd', new Date());
+  const diff = differenceInDays(today, date);
+
+  if (diff === 1) return `Вчера, ${day} ${month}`;
+
+  const weekday = WEEKDAY_NAMES_RU[getDay(date)];
+  return `${day} ${month}, ${weekday}`;
+};
+
+/**
+ * Короткая метка дня для кнопок навигации
+ * @param dateStr - Дата в формате YYYY-MM-DD
+ * @param todayDate - Сегодняшняя дата в формате YYYY-MM-DD
+ * @returns «Сегодня» / «Вчера» / «23 фев»
+ */
+export const formatDayLabel = (dateStr: string, todayDate: string): string => {
+  if (dateStr === todayDate) return 'Сегодня';
+
+  const date = parse(dateStr, 'yyyy-MM-dd', new Date());
+  const today = parse(todayDate, 'yyyy-MM-dd', new Date());
+  const diff = differenceInDays(today, date);
+
+  if (diff === 1) return 'Вчера';
+
+  const day = date.getDate();
+  const month = MONTH_NAMES_RU[date.getMonth()];
+  return `${day} ${month}`;
+};
+
+/**
+ * Возвращает предыдущую дату
+ * @param dateStr - Дата в формате YYYY-MM-DD
+ * @returns Предыдущий день в формате YYYY-MM-DD
+ */
+export const getPrevDate = (dateStr: string): string => {
+  const date = parse(dateStr, 'yyyy-MM-dd', new Date());
+  return format(subDays(date, 1), 'yyyy-MM-dd');
+};
+
+/**
+ * Возвращает следующую дату
+ * @param dateStr - Дата в формате YYYY-MM-DD
+ * @returns Следующий день в формате YYYY-MM-DD
+ */
+export const getNextDate = (dateStr: string): string => {
+  const date = parse(dateStr, 'yyyy-MM-dd', new Date());
+  return format(addDays(date, 1), 'yyyy-MM-dd');
 };

@@ -1,6 +1,8 @@
 import { InlineKeyboard } from 'grammy';
+import { differenceInDays, parse } from 'date-fns';
 import { HabitWithTodayStatus } from '../../types/index.js';
 import { serializeCallback } from '../../utils/callback.js';
+import { formatDayLabel, getPrevDate, getNextDate } from '../../utils/date.js';
 
 /**
  * Клавиатуры для бота
@@ -20,32 +22,74 @@ export const createMainMenuKeyboard = (): InlineKeyboard => {
     .text('⚙️ Настройки', serializeCallback({ type: 'settings' }));
 };
 
+/** Максимальное количество дней назад для навигации */
+const MAX_DAYS_BACK = 7;
+
 /**
- * Создаёт клавиатуру со списком привычек
+ * Создаёт клавиатуру со списком привычек и навигацией по дням
  * @param habits - Массив привычек со статусом
+ * @param viewDate - Просматриваемая дата (YYYY-MM-DD)
+ * @param todayDate - Сегодняшняя дата (YYYY-MM-DD)
  * @returns Inline клавиатура
  */
-export const createHabitsListKeyboard = (habits: HabitWithTodayStatus[]): InlineKeyboard => {
+export const createHabitsListKeyboard = (
+  habits: HabitWithTodayStatus[],
+  viewDate: string,
+  todayDate: string
+): InlineKeyboard => {
+  const isToday = viewDate === todayDate;
   const keyboard = new InlineKeyboard();
 
   for (const habit of habits) {
     const status = habit.completedToday ? '✅' : '⬜';
     const dueIndicator = habit.isDueToday ? '' : ' 💤';
-    
-    // На кнопке только статус и эмодзи, полное название уже в тексте сообщения
-    keyboard
-      .text(
-        `${status} ${habit.emoji}${dueIndicator}`,
-        serializeCallback({ type: 'habit_toggle', habitId: habit.id })
-      )
-      .text('🗑', serializeCallback({ type: 'habit_delete', habitId: habit.id }))
-      .row();
+
+    keyboard.text(
+      `${status} ${habit.emoji}${dueIndicator}`,
+      serializeCallback({
+        type: 'habit_toggle',
+        habitId: habit.id,
+        date: isToday ? undefined : viewDate,
+      })
+    );
+
+    if (isToday) {
+      keyboard.text('🗑', serializeCallback({ type: 'habit_delete', habitId: habit.id }));
+    }
+    keyboard.row();
   }
 
-  keyboard
-    .text('➕ Добавить привычку', serializeCallback({ type: 'habit_add' }))
-    .row()
-    .text('◀️ Назад', serializeCallback({ type: 'back_to_menu' }));
+  if (isToday) {
+    keyboard.text('➕ Добавить привычку', serializeCallback({ type: 'habit_add' })).row();
+  }
+
+  const viewDateObj = parse(viewDate, 'yyyy-MM-dd', new Date());
+  const todayDateObj = parse(todayDate, 'yyyy-MM-dd', new Date());
+  const daysBack = differenceInDays(todayDateObj, viewDateObj);
+
+  if (isToday) {
+    const prevDate = getPrevDate(viewDate);
+    keyboard.text(`« Вчера`, serializeCallback({ type: 'habits_day', date: prevDate })).row();
+  } else if (daysBack === 1) {
+    if (daysBack < MAX_DAYS_BACK) {
+      const prevDate = getPrevDate(viewDate);
+      const prevLabel = formatDayLabel(prevDate, todayDate);
+      keyboard.text(`« ${prevLabel}`, serializeCallback({ type: 'habits_day', date: prevDate }));
+    }
+    keyboard.text(`Сегодня »`, serializeCallback({ type: 'habits_list' })).row();
+  } else {
+    if (daysBack < MAX_DAYS_BACK) {
+      const prevDate = getPrevDate(viewDate);
+      const prevLabel = formatDayLabel(prevDate, todayDate);
+      keyboard.text(`« ${prevLabel}`, serializeCallback({ type: 'habits_day', date: prevDate }));
+    }
+    keyboard.text(`📅 Сегодня`, serializeCallback({ type: 'habits_list' }));
+    const nextDate = getNextDate(viewDate);
+    const nextLabel = formatDayLabel(nextDate, todayDate);
+    keyboard.text(`${nextLabel} »`, serializeCallback({ type: 'habits_day', date: nextDate })).row();
+  }
+
+  keyboard.text('◀️ Назад', serializeCallback({ type: 'back_to_menu' }));
 
   return keyboard;
 };

@@ -16,10 +16,12 @@ export const serializeCallback = (action: CallbackAction): string => {
       return 'h:list';
     case 'habit_add':
       return 'h:add';
+    case 'habits_day':
+      return `h:day:${action.date}`;
     case 'habit_toggle':
-      return action.source === 'evening_reminder'
-        ? `h:tog:${action.habitId}:er`
-        : `h:tog:${action.habitId}`;
+      if (action.source === 'evening_reminder') return `h:tog:${action.habitId}:er`;
+      if (action.date) return `h:tog:${action.habitId}:${action.date}`;
+      return `h:tog:${action.habitId}`;
     case 'habit_delete':
       return `h:del:${action.habitId}`;
     case 'habit_confirm_delete':
@@ -68,11 +70,18 @@ export const parseCallback = (data: string): CallbackAction | null => {
           return { type: 'habits_list' };
         case 'add':
           return { type: 'habit_add' };
+        case 'day': {
+          const date = parts[2];
+          if (!date) return null;
+          return { type: 'habits_day', date };
+        }
         case 'tog': {
           const habitId = parseInt(parts[2] ?? '', 10);
           if (isNaN(habitId)) return null;
-          const source = parts[3] === 'er' ? 'evening_reminder' as const : undefined;
-          return { type: 'habit_toggle', habitId, source };
+          const extra = parts[3];
+          if (extra === 'er') return { type: 'habit_toggle', habitId, source: 'evening_reminder' as const };
+          if (extra?.includes('-')) return { type: 'habit_toggle', habitId, date: extra };
+          return { type: 'habit_toggle', habitId };
         }
         case 'del': {
           const habitId = parseInt(parts[2] ?? '', 10);
