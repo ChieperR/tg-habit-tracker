@@ -63,6 +63,8 @@ export type HabitWithTodayStatus = {
   completedToday: boolean;
   /** Нужно ли выполнять сегодня (по расписанию) */
   isDueToday: boolean;
+  /** Время персонального напоминания (HH:MM) или null */
+  reminderTime: string | null;
 };
 
 /**
@@ -130,6 +132,8 @@ export type CallbackAction =
   | { type: 'weekly_show'; weekStart?: string }
   | { type: 'weekly_prev'; weekStart: string }
   | { type: 'weekly_next'; weekStart: string }
+  | { type: 'habit_reminder_set'; habitId: number }
+  | { type: 'habit_reminder_remove'; habitId: number }
   | { type: 'settings' }
   | { type: 'settings_morning'; time: string }
   | { type: 'settings_evening'; time: string }

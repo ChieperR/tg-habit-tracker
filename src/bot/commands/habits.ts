@@ -30,7 +30,8 @@ const buildHabitsMessage = (
     for (const habit of habits) {
       const status = habit.completedToday ? '✅' : '⬜';
       const dueIndicator = habit.isDueToday ? '' : ' 💤';
-      message += `${status} ${habit.emoji} ${habit.name}${dueIndicator}\n`;
+      const reminderIndicator = habit.reminderTime ? `  ⏰ ${habit.reminderTime}` : '';
+      message += `${status} ${habit.emoji} ${habit.name}${dueIndicator}${reminderIndicator}\n`;
     }
     message += '\n';
   }

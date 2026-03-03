@@ -1,7 +1,7 @@
 import { BotContext, BotConversation, FrequencyType } from '../../types/index.js';
 import { findOrCreateUser } from '../../services/userService.js';
 import { createHabit } from '../../services/habitService.js';
-import { createMainMenuKeyboard, createFrequencyTypeKeyboard, createEmojiKeyboard, createWeekdaysKeyboard } from '../keyboards/index.js';
+import { createMainMenuKeyboard, createFrequencyTypeKeyboard, createEmojiKeyboard, createWeekdaysKeyboard, createHabitCreatedKeyboard } from '../keyboards/index.js';
 import { serializeCallback } from '../../utils/callback.js';
 
 /**
@@ -231,7 +231,7 @@ export const addHabitConversation = async (
   }
 
   // ===== Создаём привычку =====
-  await conversation.external(() =>
+  const newHabit = await conversation.external(() =>
     createHabit({
       name: habitName,
       emoji,
@@ -248,7 +248,7 @@ export const addHabitConversation = async (
     `✅ *Привычка добавлена!*\n\n${emoji} ${habitName}\n📅 ${scheduleText}\n\nТеперь она появится в твоём списке.`,
     {
       parse_mode: 'Markdown',
-      reply_markup: createMainMenuKeyboard(),
+      reply_markup: createHabitCreatedKeyboard(newHabit.id),
     }
   );
 };
