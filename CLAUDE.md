@@ -209,6 +209,7 @@ Model fields in schema: use `///` triple-slash comments (Prisma convention)
 | `/settings` | `commands/settings.ts` | Reminder times + timezone |
 | `/help` | `commands/help.ts` | Help text |
 | `/daily` | `commands/daily.ts` | **DEV ONLY** — simulate morning reminder |
+| `/admin` | `commands/admin.ts` | Admin only — bot statistics (silently ignores non-admin) |
 
 ### Callback Actions (all types in `types/index.ts`)
 | Type | Description |
