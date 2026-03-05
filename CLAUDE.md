@@ -82,6 +82,7 @@ prisma/
 - `morningTime / eveningTime: String` — format `HH:MM` in user's local time
 - `morningEnabled / eveningEnabled: Boolean` — reminder toggles
 - `lastMorningReminderDate / lastEveningReminderDate: String?` — `YYYY-MM-DD`, used to avoid duplicate reminders
+- `lastSeenChangelog: Int` — ID of the last changelog entry the user has seen (default `0`)
 
 ### `Habit`
 - `frequencyType: String` — `"daily"` | `"interval"` | `"weekdays"`
@@ -210,6 +211,7 @@ Model fields in schema: use `///` triple-slash comments (Prisma convention)
 | `/help` | `commands/help.ts` | Help text |
 | `/daily` | `commands/daily.ts` | **DEV ONLY** — simulate morning reminder |
 | `/admin` | `commands/admin.ts` | Admin only — bot statistics (silently ignores non-admin) |
+| `/changelog` | `commands/changelog.ts` | Shows new changelog entries since last seen; not in setMyCommands (discoverable via banner only) |
 
 ### Callback Actions (all types in `types/index.ts`)
 | Type | Description |

@@ -29,6 +29,8 @@ model User {
   lastMorningReminderDate String?
   /// Дата последнего вечернего напоминания (YYYY-MM-DD)
   lastEveningReminderDate String?
+  /// ID последнего просмотренного обновления changelog
+  lastSeenChangelog Int @default(0)
   /// Дата создания аккаунта
   createdAt DateTime @default(now())
   

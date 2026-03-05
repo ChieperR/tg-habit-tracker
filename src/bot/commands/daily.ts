@@ -39,7 +39,8 @@ export const handleDaily = async (ctx: BotContext): Promise<void> => {
       botLike as any,
       BigInt(telegramId),
       user.id,
-      timezoneOffset
+      timezoneOffset,
+      user.lastSeenChangelog
     );
 
     // Небольшая задержка между сообщениями
@@ -50,7 +51,8 @@ export const handleDaily = async (ctx: BotContext): Promise<void> => {
       botLike as any,
       BigInt(telegramId),
       user.id,
-      timezoneOffset
+      timezoneOffset,
+      user.lastSeenChangelog
     );
   } catch (error) {
     console.error('Ошибка отправки тестовых напоминаний:', error);

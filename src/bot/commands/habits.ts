@@ -4,18 +4,21 @@ import { getUserHabitsWithTodayStatus, getUserHabitsWithDateStatus } from '../..
 import { createHabitsListKeyboard, createMainMenuKeyboard } from '../keyboards/index.js';
 import { safeEditMessage } from '../../utils/telegram.js';
 import { getTodayDate, formatDayHeader } from '../../utils/date.js';
+import { getChangelogBanner } from '../../changelog.js';
 
 /**
  * Собирает текст сообщения со списком привычек
  * @param habits - Привычки со статусом
  * @param dateLabel - Форматированная метка дня для заголовка
  * @param isToday - Просматривается ли сегодняшний день
+ * @param user - Объект с lastSeenChangelog для баннера changelog
  * @returns Текст сообщения в Markdown
  */
 const buildHabitsMessage = (
   habits: HabitWithTodayStatus[],
   dateLabel: string,
-  isToday: boolean
+  isToday: boolean,
+  user: { lastSeenChangelog: number; timezoneOffset?: number | null }
 ): string => {
   let message = `📝 *Мои привычки — ${dateLabel}*\n\n`;
 
@@ -37,6 +40,12 @@ const buildHabitsMessage = (
   }
 
   message += 'Нажми на кнопку, чтобы отметить выполнение:';
+
+  const banner = getChangelogBanner(user, user.timezoneOffset ?? 180);
+  if (banner) {
+    message += banner;
+  }
+
   return message;
 };
 
@@ -71,7 +80,7 @@ export const handleHabits = async (ctx: BotContext): Promise<void> => {
   }
 
   const dateLabel = formatDayHeader(todayDate, todayDate);
-  const message = buildHabitsMessage(habits, dateLabel, true);
+  const message = buildHabitsMessage(habits, dateLabel, true, user);
 
   await ctx.reply(message, {
     parse_mode: 'Markdown',
@@ -114,7 +123,7 @@ export const showHabitsList = async (ctx: BotContext, date?: string): Promise<vo
   }
 
   const dateLabel = formatDayHeader(viewDate, todayDate);
-  const message = buildHabitsMessage(habits, dateLabel, isToday);
+  const message = buildHabitsMessage(habits, dateLabel, isToday, user);
 
   await safeEditMessage(ctx, message, {
     parse_mode: 'Markdown',
