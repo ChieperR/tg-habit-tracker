@@ -49,12 +49,14 @@ model Habit {
   frequencyDays Int  @default(1)
   /// Дни недели через запятую: "1,2,3" где 0=Вс, 1=Пн, ..., 6=Сб (для frequencyType = "weekdays")
   weekdays  String?
+  /// Время персонального напоминания (формат HH:MM в часовом поясе пользователя), null = нет
+  reminderTime String?
+  /// Дата последнего персонального напоминания (YYYY-MM-DD), для дедупликации
+  lastHabitReminderDate String?
   /// Активна ли привычка
   isActive  Boolean  @default(true)
   /// Дата создания
   createdAt DateTime @default(now())
-  /// Дата последнего напоминания
-  lastRemindedAt DateTime?
   
   /// Владелец привычки
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)

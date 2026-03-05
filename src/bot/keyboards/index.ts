@@ -54,7 +54,7 @@ export const createHabitsListKeyboard = (
     );
 
     if (isToday) {
-      keyboard.text('🗑', serializeCallback({ type: 'habit_delete', habitId: habit.id }));
+      keyboard.text('⚙️', serializeCallback({ type: 'habit_details', habitId: habit.id }));
     }
     keyboard.row();
   }
@@ -238,6 +238,55 @@ export const createWeekdaysKeyboard = (selectedDays: number[]): InlineKeyboard =
     .text('❌ Отмена', serializeCallback({ type: 'back_to_menu' }));
 
   return keyboard;
+};
+
+/**
+ * Параметры для клавиатуры деталей привычки
+ */
+export type HabitDetailsKeyboardParams = {
+  habitId: number;
+  reminderTime: string | null;
+};
+
+/**
+ * Создаёт клавиатуру деталей привычки (напоминание + удаление)
+ * @param params - Параметры привычки
+ * @returns Inline клавиатура
+ */
+export const createHabitDetailsKeyboard = (params: HabitDetailsKeyboardParams): InlineKeyboard => {
+  const { habitId, reminderTime } = params;
+  const keyboard = new InlineKeyboard();
+
+  if (reminderTime) {
+    keyboard
+      .text(`⏰ Напоминание: ${reminderTime}`, serializeCallback({ type: 'habit_reminder_set', habitId }))
+      .row()
+      .text('🔕 Убрать напоминание', serializeCallback({ type: 'habit_reminder_remove', habitId }))
+      .row();
+  } else {
+    keyboard
+      .text('⏰ Установить напоминание', serializeCallback({ type: 'habit_reminder_set', habitId }))
+      .row();
+  }
+
+  keyboard
+    .text('🗑 Удалить привычку', serializeCallback({ type: 'habit_delete', habitId }))
+    .row()
+    .text('◀️ Назад', serializeCallback({ type: 'habits_list' }));
+
+  return keyboard;
+};
+
+/**
+ * Создаёт клавиатуру после создания привычки (с опцией напоминания)
+ * @param habitId - ID созданной привычки
+ * @returns Inline клавиатура
+ */
+export const createHabitCreatedKeyboard = (habitId: number): InlineKeyboard => {
+  return new InlineKeyboard()
+    .text('⏰ Добавить напоминание', serializeCallback({ type: 'habit_reminder_set', habitId }))
+    .row()
+    .text('📝 К привычкам', serializeCallback({ type: 'habits_list' }));
 };
 
 /**

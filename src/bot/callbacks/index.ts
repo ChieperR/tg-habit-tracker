@@ -1,13 +1,14 @@
+import { InlineKeyboard } from 'grammy';
 import { BotContext } from '../../types/index.js';
-import { parseCallback } from '../../utils/callback.js';
+import { parseCallback, serializeCallback } from '../../utils/callback.js';
 import { safeEditMessage, safeAnswerCallback } from '../../utils/telegram.js';
 import { findOrCreateUser, updateUserSettings } from '../../services/userService.js';
-import { toggleHabitCompletion, deleteHabit, getHabitById, getUserHabitsWithTodayStatus } from '../../services/habitService.js';
+import { toggleHabitCompletion, deleteHabit, getHabitById, getUserHabitsWithTodayStatus, updateHabitReminder } from '../../services/habitService.js';
 import { showHabitsList } from '../commands/habits.js';
 import { showStats } from '../commands/stats.js';
 import { showWeekly, getPrevWeekStart, getNextWeekStart } from '../commands/weekly.js';
 import { showSettings } from '../commands/settings.js';
-import { createMainMenuKeyboard, createDeleteConfirmKeyboard, createEveningChecklistKeyboard } from '../keyboards/index.js';
+import { createMainMenuKeyboard, createDeleteConfirmKeyboard, createEveningChecklistKeyboard, createHabitDetailsKeyboard } from '../keyboards/index.js';
 
 /**
  * Обработчик callback запросов
@@ -70,12 +71,25 @@ export const handleCallback = async (ctx: BotContext): Promise<void> => {
         await handleHabitToggle(ctx, action.habitId, action.source, action.date);
         break;
 
+      case 'habit_details':
+        await handleHabitDetails(ctx, action.habitId);
+        break;
+
       case 'habit_delete':
         await handleHabitDeletePrompt(ctx, action.habitId);
         break;
 
       case 'habit_confirm_delete':
         await handleHabitConfirmDelete(ctx, action.habitId);
+        break;
+
+      case 'habit_reminder_set':
+        await ctx.answerCallbackQuery();
+        await ctx.conversation.enter('setHabitReminder');
+        break;
+
+      case 'habit_reminder_remove':
+        await handleHabitReminderRemove(ctx, action.habitId);
         break;
 
       case 'stats':
@@ -196,13 +210,13 @@ const showMainMenu = async (ctx: BotContext): Promise<void> => {
 
 /**
  * Переключает статус выполнения привычки
- * @param source - Источник вызова ('evening_reminder' или undefined для списка привычек)
+ * @param source - Источник вызова ('evening_reminder' | 'habit_reminder' | undefined)
  * @param date - Дата переключения (YYYY-MM-DD); если не передана — сегодня
  */
 const handleHabitToggle = async (
   ctx: BotContext,
   habitId: number,
-  source?: 'evening_reminder',
+  source?: 'evening_reminder' | 'habit_reminder',
   date?: string
 ): Promise<void> => {
   const telegramId = ctx.from?.id;
@@ -221,6 +235,23 @@ const handleHabitToggle = async (
   const statusText = newStatus ? '✅ Выполнено!' : '⬜ Отменено';
 
   await safeAnswerCallback(ctx, statusText);
+
+  if (source === 'habit_reminder') {
+    const doneText = newStatus
+      ? `✅ *${habit.emoji} ${habit.name}* — выполнено!`
+      : `⏰ Пришло время: *${habit.emoji} ${habit.name}*`;
+
+    const toggleKeyboard = new InlineKeyboard().text(
+      newStatus ? '↩️ Отменить' : '✅ Выполнено',
+      serializeCallback({ type: 'habit_toggle', habitId, source: 'habit_reminder' })
+    );
+
+    await safeEditMessage(ctx, doneText, {
+      parse_mode: 'Markdown',
+      reply_markup: toggleKeyboard,
+    });
+    return;
+  }
 
   if (source === 'evening_reminder') {
     const habits = await getUserHabitsWithTodayStatus(user.id, timezoneOffset);
@@ -293,4 +324,100 @@ const handleHabitConfirmDelete = async (ctx: BotContext, habitId: number): Promi
   await deleteHabit(habitId);
   await ctx.answerCallbackQuery('🗑 Привычка удалена');
   await showHabitsList(ctx);
+};
+
+/** Названия дней недели */
+const WEEKDAY_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+
+/**
+ * Форматирует расписание привычки
+ */
+const formatScheduleText = (habit: { frequencyType: string; frequencyDays: number; weekdays: string | null }): string => {
+  switch (habit.frequencyType) {
+    case 'daily':
+      return 'ежедневно';
+    case 'interval':
+      return `раз в ${habit.frequencyDays} дн.`;
+    case 'weekdays': {
+      if (!habit.weekdays) return '';
+      const days = habit.weekdays.split(',').map(Number);
+      const sorted = [...days].sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b));
+      return sorted.map((d) => WEEKDAY_NAMES[d]).join(', ');
+    }
+    default:
+      return '';
+  }
+};
+
+/**
+ * Показывает детали привычки
+ */
+const handleHabitDetails = async (ctx: BotContext, habitId: number): Promise<void> => {
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+
+  const user = await findOrCreateUser(telegramId);
+  const habit = await getHabitById(habitId);
+
+  if (!habit || habit.userId !== user.id) {
+    await ctx.answerCallbackQuery('❌ Привычка не найдена');
+    return;
+  }
+
+  await ctx.answerCallbackQuery();
+
+  const schedule = formatScheduleText(habit);
+  const reminderLine = habit.reminderTime
+    ? `⏰ Напоминание: *${habit.reminderTime}*`
+    : '⏰ Напоминание: _не установлено_';
+
+  const message = `
+⚙️ *${habit.emoji} ${habit.name}*
+
+📅 Расписание: _${schedule}_
+${reminderLine}
+  `.trim();
+
+  await safeEditMessage(ctx, message, {
+    parse_mode: 'Markdown',
+    reply_markup: createHabitDetailsKeyboard({
+      habitId: habit.id,
+      reminderTime: habit.reminderTime,
+    }),
+  });
+};
+
+/**
+ * Удаляет напоминание привычки
+ */
+const handleHabitReminderRemove = async (ctx: BotContext, habitId: number): Promise<void> => {
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+
+  const user = await findOrCreateUser(telegramId);
+  const habit = await getHabitById(habitId);
+
+  if (!habit || habit.userId !== user.id) {
+    await ctx.answerCallbackQuery('❌ Привычка не найдена');
+    return;
+  }
+
+  await updateHabitReminder(habitId, null);
+  await ctx.answerCallbackQuery('🔕 Напоминание удалено');
+
+  const schedule = formatScheduleText(habit);
+  const message = `
+⚙️ *${habit.emoji} ${habit.name}*
+
+📅 Расписание: _${schedule}_
+⏰ Напоминание: _не установлено_
+  `.trim();
+
+  await safeEditMessage(ctx, message, {
+    parse_mode: 'Markdown',
+    reply_markup: createHabitDetailsKeyboard({
+      habitId: habit.id,
+      reminderTime: null,
+    }),
+  });
 };

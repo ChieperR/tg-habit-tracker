@@ -162,6 +162,7 @@ export const getUserHabitsWithTodayStatus = async (
         weekdays: habit.weekdays,
         completedToday,
         isDueToday,
+        reminderTime: habit.reminderTime,
       };
     })
   );
@@ -222,6 +223,7 @@ export const getUserHabitsWithDateStatus = async (
         weekdays: habit.weekdays,
         completedToday: completed,
         isDueToday: isDue,
+        reminderTime: habit.reminderTime,
       };
     })
   );
@@ -264,5 +266,44 @@ export const getHabitLogs = async (
       },
     },
     orderBy: { date: 'asc' },
+  });
+};
+
+/**
+ * Устанавливает время персонального напоминания для привычки
+ * @param habitId - ID привычки
+ * @param time - Время в формате HH:MM или null для удаления
+ * @returns Обновлённая привычка
+ */
+export const updateHabitReminder = async (
+  habitId: number,
+  time: string | null
+): Promise<Habit> => {
+  return prisma.habit.update({
+    where: { id: habitId },
+    data: {
+      reminderTime: time,
+      lastHabitReminderDate: time === null ? null : undefined,
+    },
+  });
+};
+
+/**
+ * Получает все активные привычки с персональными напоминаниями
+ * @returns Привычки с данными пользователя
+ */
+export const getHabitsWithReminders = async (): Promise<
+  (Habit & { user: { telegramId: bigint; timezoneOffset: number | null } })[]
+> => {
+  return prisma.habit.findMany({
+    where: {
+      isActive: true,
+      reminderTime: { not: null },
+    },
+    include: {
+      user: {
+        select: { telegramId: true, timezoneOffset: true },
+      },
+    },
   });
 };

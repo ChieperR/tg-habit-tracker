@@ -1,29 +1,34 @@
 import cron from 'node-cron';
 import { Bot } from 'grammy';
 import { BotContext } from '../types/index.js';
-import { checkAndSendReminders } from '../services/reminderService.js';
+import { checkAndSendReminders, checkAndSendHabitReminders } from '../services/reminderService.js';
 
 /**
  * Планировщик задач для отправки напоминаний
  * @module scheduler/cron
  */
 
+let isRunning = false;
+
 /**
  * Запускает планировщик напоминаний
  * @param bot - Инстанс бота
- * @description Проверяет каждую минуту, нужно ли отправить напоминания
+ * @description Проверяет каждую минуту, нужно ли отправить напоминания.
+ * Mutex-флаг предотвращает параллельный запуск при длительной обработке.
  */
 export const startScheduler = (bot: Bot<BotContext>): void => {
-  // Проверяем каждую минуту
   cron.schedule('* * * * *', async () => {
+    if (isRunning) return;
+    isRunning = true;
+
     try {
-      // Проверяем утренние напоминания
       await checkAndSendReminders(bot, 'morning');
-      
-      // Проверяем вечерние напоминания
       await checkAndSendReminders(bot, 'evening');
+      await checkAndSendHabitReminders(bot);
     } catch (error) {
       console.error('Ошибка в планировщике напоминаний:', error);
+    } finally {
+      isRunning = false;
     }
   });
 

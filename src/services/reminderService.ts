@@ -1,10 +1,12 @@
 import { Bot } from 'grammy';
 import { prisma } from '../db/index.js';
 import { BotContext, HabitWithTodayStatus } from '../types/index.js';
-import { getTodayHabits, getUserHabitsWithTodayStatus } from './habitService.js';
+import { getTodayHabits, getUserHabitsWithTodayStatus, getHabitsWithReminders, getHabitLog } from './habitService.js';
 import { getUsersForMorningReminder, getUsersForEveningReminder } from './userService.js';
-import { parseTime, getTodayDate } from '../utils/date.js';
+import { parseTime, getTodayDate, isHabitDueToday } from '../utils/date.js';
+import { serializeCallback } from '../utils/callback.js';
 import { createMainMenuKeyboard, createEveningChecklistKeyboard } from '../bot/keyboards/index.js';
+import { InlineKeyboard } from 'grammy';
 
 /** Названия дней недели */
 const WEEKDAY_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
@@ -184,6 +186,77 @@ export const checkAndSendReminders = async (
           data: { lastEveningReminderDate: todayDate },
         });
       }
+    }
+  }
+};
+
+/**
+ * Проверяет и отправляет персональные напоминания привычек
+ * @description Для каждой привычки с reminderTime:
+ * 1. Проверяет, что привычка запланирована на сегодня и ещё не выполнена
+ * 2. Текущее время пользователя >= reminderTime
+ * 3. Сегодня ещё не отправляли (lastHabitReminderDate)
+ * @param bot - Инстанс бота
+ */
+export const checkAndSendHabitReminders = async (
+  bot: Bot<BotContext>
+): Promise<void> => {
+  const habits = await getHabitsWithReminders();
+  const now = new Date();
+
+  for (const habit of habits) {
+    const timezoneOffset = habit.user.timezoneOffset ?? 180;
+    const todayDate = getTodayDate(timezoneOffset);
+
+    if (habit.lastHabitReminderDate === todayDate) {
+      continue;
+    }
+
+    if (!habit.reminderTime) continue;
+
+    const lastCompletedLog = await prisma.habitLog.findFirst({
+      where: { habitId: habit.id, completed: true },
+      orderBy: { date: 'desc' },
+    });
+
+    const isDue = isHabitDueToday({
+      frequencyType: habit.frequencyType as 'daily' | 'interval' | 'weekdays',
+      frequencyDays: habit.frequencyDays,
+      weekdays: habit.weekdays,
+      lastCompletedDate: lastCompletedLog?.date ?? null,
+      todayDate,
+    });
+
+    if (!isDue) continue;
+
+    const todayLog = await getHabitLog(habit.id, todayDate);
+    if (todayLog?.completed) continue;
+
+    const { hours: targetHours, minutes: targetMinutes } = parseTime(habit.reminderTime);
+
+    const utcNow = now.getTime() + now.getTimezoneOffset() * 60000;
+    const userLocalTime = new Date(utcNow + timezoneOffset * 60000);
+    const currentTimeInMinutes = userLocalTime.getHours() * 60 + userLocalTime.getMinutes();
+    const targetTimeInMinutes = targetHours * 60 + targetMinutes;
+
+    if (currentTimeInMinutes >= targetTimeInMinutes) {
+      const message = `⏰ Пришло время: *${habit.emoji} ${habit.name}*`;
+      const keyboard = new InlineKeyboard()
+        .text('✅ Выполнено', serializeCallback({ type: 'habit_toggle', habitId: habit.id, source: 'habit_reminder' }));
+
+      try {
+        await bot.api.sendMessage(habit.user.telegramId.toString(), message, {
+          parse_mode: 'Markdown',
+          reply_markup: keyboard,
+        });
+      } catch (error) {
+        console.error(`Ошибка отправки напоминания привычки ${habit.id} для ${habit.user.telegramId}:`, error);
+      }
+
+      await prisma.habit.update({
+        where: { id: habit.id },
+        data: { lastHabitReminderDate: todayDate },
+      });
     }
   }
 };

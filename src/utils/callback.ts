@@ -20,6 +20,7 @@ export const serializeCallback = (action: CallbackAction): string => {
       return `h:day:${action.date}`;
     case 'habit_toggle':
       if (action.source === 'evening_reminder') return `h:tog:${action.habitId}:er`;
+      if (action.source === 'habit_reminder') return `h:tog:${action.habitId}:hr`;
       if (action.date) return `h:tog:${action.habitId}:${action.date}`;
       return `h:tog:${action.habitId}`;
     case 'habit_delete':
@@ -28,6 +29,10 @@ export const serializeCallback = (action: CallbackAction): string => {
       return `h:cdel:${action.habitId}`;
     case 'habit_details':
       return `h:det:${action.habitId}`;
+    case 'habit_reminder_set':
+      return `h:rset:${action.habitId}`;
+    case 'habit_reminder_remove':
+      return `h:rrem:${action.habitId}`;
     case 'stats':
       return 's:main';
     case 'weekly_show':
@@ -80,6 +85,7 @@ export const parseCallback = (data: string): CallbackAction | null => {
           if (isNaN(habitId)) return null;
           const extra = parts[3];
           if (extra === 'er') return { type: 'habit_toggle', habitId, source: 'evening_reminder' as const };
+          if (extra === 'hr') return { type: 'habit_toggle', habitId, source: 'habit_reminder' as const };
           if (extra?.includes('-')) return { type: 'habit_toggle', habitId, date: extra };
           return { type: 'habit_toggle', habitId };
         }
@@ -97,6 +103,16 @@ export const parseCallback = (data: string): CallbackAction | null => {
           const habitId = parseInt(parts[2] ?? '', 10);
           if (isNaN(habitId)) return null;
           return { type: 'habit_details', habitId };
+        }
+        case 'rset': {
+          const habitId = parseInt(parts[2] ?? '', 10);
+          if (isNaN(habitId)) return null;
+          return { type: 'habit_reminder_set', habitId };
+        }
+        case 'rrem': {
+          const habitId = parseInt(parts[2] ?? '', 10);
+          if (isNaN(habitId)) return null;
+          return { type: 'habit_reminder_remove', habitId };
         }
       }
       break;

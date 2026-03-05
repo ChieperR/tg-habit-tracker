@@ -14,6 +14,7 @@ import {
   setMorningTimeConversation,
   setEveningTimeConversation,
   setTimezoneConversation,
+  setHabitReminderConversation,
 } from './conversations/index.js';
 
 /**
@@ -44,6 +45,7 @@ export const createBot = (token: string): Bot<BotContext> => {
   bot.use(createConversation(setMorningTimeConversation, 'setMorningTime'));
   bot.use(createConversation(setEveningTimeConversation, 'setEveningTime'));
   bot.use(createConversation(setTimezoneConversation, 'setTimezone'));
+  bot.use(createConversation(setHabitReminderConversation, 'setHabitReminder'));
 
   // Команды
   bot.command('start', handleStart);

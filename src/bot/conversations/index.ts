@@ -7,5 +7,6 @@ export { addHabitConversation } from './addHabit.js';
 export { 
   setMorningTimeConversation, 
   setEveningTimeConversation, 
-  setTimezoneConversation 
+  setTimezoneConversation,
+  setHabitReminderConversation,
 } from './settings.js';

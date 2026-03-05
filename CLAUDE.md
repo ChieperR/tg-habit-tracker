@@ -42,8 +42,8 @@ src/
 │   │   ├── help.ts             # /help
 │   │   └── daily.ts            # /daily — DEV ONLY: simulate morning reminder
 │   ├── conversations/          # Multi-step dialogs (@grammyjs/conversations)
-│   │   ├── addHabit.ts         # Add habit wizard (name → emoji → frequency)
-│   │   ├── settings.ts         # Settings wizards (morning time, evening time, timezone)
+│   │   ├── addHabit.ts         # Add habit wizard (name → emoji → frequency → reminder)
+│   │   ├── settings.ts         # Settings wizards (morning time, evening time, timezone, habit reminder)
 │   │   └── index.ts            # Re-exports
 │   ├── callbacks/
 │   │   └── index.ts            # Central callback_query router
@@ -60,7 +60,7 @@ src/
 │   ├── habitService.ts         # CRUD for habits, isDueToday logic
 │   ├── statsService.ts         # getUserStats, formatStatsMessage, streak calc
 │   ├── weeklyService.ts        # Weekly calendar: habit rows with DayState per day
-│   └── reminderService.ts      # checkAndSendReminders (morning/evening)
+│   └── reminderService.ts      # checkAndSendReminders (morning/evening/habit)
 ├── types/
 │   └── index.ts                # All shared TS types (BotContext, CallbackAction, etc.)
 └── utils/
@@ -88,6 +88,8 @@ prisma/
 - `frequencyDays: Int` — only meaningful for `interval`
 - `weekdays: String?` — comma-separated JS `getDay()` values: `0=Sun, 1=Mon, ..., 6=Sat`  
   Example: `"1,3,5"` = Mon, Wed, Fri
+- `reminderTime: String?` — personal reminder time `HH:MM` in user's local timezone, `null` = no reminder
+- `lastHabitReminderDate: String?` — `YYYY-MM-DD`, dedup for habit-specific reminders
 - `isActive: Boolean` — soft delete pattern
 
 ### `HabitLog`
@@ -133,11 +135,20 @@ const user = await conversation.external(() => findOrCreateUser(telegramId));
 ```
 
 ### Reminder Flow
-`cron.ts` runs every minute → `checkAndSendReminders(bot, 'morning' | 'evening')` in `reminderService.ts`:
+`cron.ts` runs every minute (with mutex to prevent overlapping runs) → `reminderService.ts`:
+
+**Global reminders** (`checkAndSendReminders`):
 1. Finds all users who have the reminder enabled
-2. Checks if current minute in user's timezone matches their configured time
+2. Checks if current time in user's timezone >= their configured time
 3. Checks `lastXxxReminderDate` to avoid duplicates
 4. Sends message and updates the date
+
+**Per-habit reminders** (`checkAndSendHabitReminders`):
+1. Finds all active habits with `reminderTime != null`
+2. Checks habit is due today and not yet completed
+3. Checks user's current time >= `reminderTime`
+4. Checks `lastHabitReminderDate` to avoid duplicates
+5. Sends "⏰ Пришло время: {emoji} {name}" with a ✅ toggle button
 
 ---
 
@@ -205,7 +216,9 @@ Model fields in schema: use `///` triple-slash comments (Prisma convention)
 | `habit_toggle` | Mark habit done/undone for today |
 | `habit_add` | Start add-habit conversation |
 | `habit_delete` / `habit_confirm_delete` | Two-step delete |
-| `habit_details` | Habit detail view |
+| `habit_details` | Habit detail view (reminder + delete) |
+| `habit_reminder_set` | Start set-reminder conversation |
+| `habit_reminder_remove` | Remove habit reminder |
 | `weekly_show` / `weekly_prev` / `weekly_next` | Weekly calendar navigation |
 | `stats` | Refresh stats view |
 | `settings_morning` / `settings_evening` | Set reminder time |

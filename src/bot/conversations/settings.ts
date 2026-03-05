@@ -1,11 +1,13 @@
 import { InlineKeyboard, Keyboard } from 'grammy';
 import { BotContext, BotConversation } from '../../types/index.js';
 import { findOrCreateUser, updateUserSettings } from '../../services/userService.js';
+import { getHabitById, updateHabitReminder } from '../../services/habitService.js';
 import {
   getTimezoneOffsetFromLocation,
   parseTimezoneFromText,
 } from '../../utils/timezoneFromLocation.js';
-import { createMainMenuKeyboard, createSettingsKeyboard } from '../keyboards/index.js';
+import { createMainMenuKeyboard, createSettingsKeyboard, createHabitDetailsKeyboard } from '../keyboards/index.js';
+import { parseCallback } from '../../utils/callback.js';
 import { formatSettingsMessage } from '../commands/settings.js';
 import { safeEditMessage } from '../../utils/telegram.js';
 
@@ -215,6 +217,70 @@ export const setTimezoneConversation = async (
     {
       parse_mode: 'Markdown',
       reply_markup: removeKeyboard,
+    }
+  );
+};
+
+/**
+ * Conversation для установки персонального напоминания привычки
+ */
+export const setHabitReminderConversation = async (
+  conversation: BotConversation,
+  ctx: BotContext
+): Promise<void> => {
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+
+  const callbackData = ctx.callbackQuery?.data;
+  const action = callbackData ? parseCallback(callbackData) : null;
+  const habitId = action && action.type === 'habit_reminder_set' ? action.habitId : undefined;
+
+  if (!habitId) {
+    await ctx.reply('❌ Привычка не найдена', { reply_markup: createMainMenuKeyboard() });
+    return;
+  }
+
+  const habit = await conversation.external(() => getHabitById(habitId));
+  if (!habit) {
+    await ctx.reply('❌ Привычка не найдена', { reply_markup: createMainMenuKeyboard() });
+    return;
+  }
+
+  const currentTime = habit.reminderTime;
+  const currentLabel = currentTime ? `Текущее: *${currentTime}*\n\n` : '';
+
+  await ctx.reply(
+    `⏰ *Напоминание для ${habit.emoji} ${habit.name}*\n\n${currentLabel}Введи время в формате ЧЧ:ММ\n(например: 07:30 или 9:00)`,
+    { parse_mode: 'Markdown' }
+  );
+
+  const response = await conversation.waitFor('message:text');
+  const input = response.message.text.trim();
+
+  if (input.startsWith('/')) {
+    await ctx.reply('❌ Отменено', { reply_markup: createMainMenuKeyboard() });
+    return;
+  }
+
+  if (!isValidTime(input)) {
+    await ctx.reply(
+      '❌ Неверный формат времени. Используй ЧЧ:ММ (например: 07:30)',
+      { reply_markup: createMainMenuKeyboard() }
+    );
+    return;
+  }
+
+  const normalizedTime = normalizeTime(input);
+  await conversation.external(() => updateHabitReminder(habitId, normalizedTime));
+
+  await ctx.reply(
+    `✅ Напоминание для ${habit.emoji} *${habit.name}* установлено на *${normalizedTime}*`,
+    {
+      parse_mode: 'Markdown',
+      reply_markup: createHabitDetailsKeyboard({
+        habitId: habit.id,
+        reminderTime: normalizedTime,
+      }),
     }
   );
 };
