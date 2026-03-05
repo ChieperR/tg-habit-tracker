@@ -1,5 +1,6 @@
+import { InlineKeyboard } from 'grammy';
 import { BotContext } from '../../types/index.js';
-import { parseCallback } from '../../utils/callback.js';
+import { parseCallback, serializeCallback } from '../../utils/callback.js';
 import { safeEditMessage, safeAnswerCallback } from '../../utils/telegram.js';
 import { findOrCreateUser, updateUserSettings } from '../../services/userService.js';
 import { toggleHabitCompletion, deleteHabit, getHabitById, getUserHabitsWithTodayStatus, updateHabitReminder } from '../../services/habitService.js';
@@ -209,13 +210,13 @@ const showMainMenu = async (ctx: BotContext): Promise<void> => {
 
 /**
  * Переключает статус выполнения привычки
- * @param source - Источник вызова ('evening_reminder' или undefined для списка привычек)
+ * @param source - Источник вызова ('evening_reminder' | 'habit_reminder' | undefined)
  * @param date - Дата переключения (YYYY-MM-DD); если не передана — сегодня
  */
 const handleHabitToggle = async (
   ctx: BotContext,
   habitId: number,
-  source?: 'evening_reminder',
+  source?: 'evening_reminder' | 'habit_reminder',
   date?: string
 ): Promise<void> => {
   const telegramId = ctx.from?.id;
@@ -234,6 +235,23 @@ const handleHabitToggle = async (
   const statusText = newStatus ? '✅ Выполнено!' : '⬜ Отменено';
 
   await safeAnswerCallback(ctx, statusText);
+
+  if (source === 'habit_reminder') {
+    const doneText = newStatus
+      ? `✅ *${habit.emoji} ${habit.name}* — выполнено!`
+      : `⏰ Пришло время: *${habit.emoji} ${habit.name}*`;
+
+    const toggleKeyboard = new InlineKeyboard().text(
+      newStatus ? '↩️ Отменить' : '✅ Выполнено',
+      serializeCallback({ type: 'habit_toggle', habitId, source: 'habit_reminder' })
+    );
+
+    await safeEditMessage(ctx, doneText, {
+      parse_mode: 'Markdown',
+      reply_markup: toggleKeyboard,
+    });
+    return;
+  }
 
   if (source === 'evening_reminder') {
     const habits = await getUserHabitsWithTodayStatus(user.id, timezoneOffset);

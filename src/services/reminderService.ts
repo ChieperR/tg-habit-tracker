@@ -242,7 +242,7 @@ export const checkAndSendHabitReminders = async (
     if (currentTimeInMinutes >= targetTimeInMinutes) {
       const message = `⏰ Пришло время: *${habit.emoji} ${habit.name}*`;
       const keyboard = new InlineKeyboard()
-        .text('✅ Выполнено', serializeCallback({ type: 'habit_toggle', habitId: habit.id }));
+        .text('✅ Выполнено', serializeCallback({ type: 'habit_toggle', habitId: habit.id, source: 'habit_reminder' }));
 
       try {
         await bot.api.sendMessage(habit.user.telegramId.toString(), message, {

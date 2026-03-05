@@ -20,6 +20,7 @@ export const serializeCallback = (action: CallbackAction): string => {
       return `h:day:${action.date}`;
     case 'habit_toggle':
       if (action.source === 'evening_reminder') return `h:tog:${action.habitId}:er`;
+      if (action.source === 'habit_reminder') return `h:tog:${action.habitId}:hr`;
       if (action.date) return `h:tog:${action.habitId}:${action.date}`;
       return `h:tog:${action.habitId}`;
     case 'habit_delete':
@@ -84,6 +85,7 @@ export const parseCallback = (data: string): CallbackAction | null => {
           if (isNaN(habitId)) return null;
           const extra = parts[3];
           if (extra === 'er') return { type: 'habit_toggle', habitId, source: 'evening_reminder' as const };
+          if (extra === 'hr') return { type: 'habit_toggle', habitId, source: 'habit_reminder' as const };
           if (extra?.includes('-')) return { type: 'habit_toggle', habitId, date: extra };
           return { type: 'habit_toggle', habitId };
         }
