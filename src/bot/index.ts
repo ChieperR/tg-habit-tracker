@@ -7,6 +7,7 @@ import { handleHabits } from './commands/habits.js';
 import { handleStats } from './commands/stats.js';
 import { handleSettings } from './commands/settings.js';
 import { handleDaily } from './commands/daily.js';
+import { handleAdmin } from './commands/admin.js';
 import { handleCallback } from './callbacks/index.js';
 import { handleTimezoneInput } from './handlers/timezoneInput.js';
 import {
@@ -54,6 +55,9 @@ export const createBot = (token: string): Bot<BotContext> => {
   bot.command('stats', handleStats);
   bot.command('settings', handleSettings);
   
+  // Команда администратора
+  bot.command('admin', handleAdmin);
+
   // DEV команды (только в режиме разработки)
   if (process.env.NODE_ENV === 'development' || process.env.DEV === 'true') {
     bot.command('daily', handleDaily);
