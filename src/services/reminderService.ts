@@ -54,11 +54,11 @@ export const sendMorningReminder = async (
   telegramId: bigint,
   userId: number,
   timezoneOffset: number
-): Promise<void> => {
+): Promise<boolean> => {
   const todayHabits = await getTodayHabits(userId, timezoneOffset);
 
   if (todayHabits.length === 0) {
-    return; // Нет привычек на сегодня
+    return false;
   }
 
   let message = '🌅 *Доброе утро!*\n\n';
@@ -76,8 +76,10 @@ export const sendMorningReminder = async (
       parse_mode: 'Markdown',
       reply_markup: createMainMenuKeyboard(),
     });
+    return true;
   } catch (error) {
     console.error(`Ошибка отправки утреннего напоминания для ${telegramId}:`, error);
+    return false;
   }
 };
 
@@ -93,12 +95,12 @@ export const sendEveningReminder = async (
   telegramId: bigint,
   userId: number,
   timezoneOffset: number
-): Promise<void> => {
+): Promise<boolean> => {
   const habits = await getUserHabitsWithTodayStatus(userId, timezoneOffset);
   const todayHabits = habits.filter((h) => h.isDueToday);
 
   if (todayHabits.length === 0) {
-    return; // Нет привычек на сегодня
+    return false;
   }
 
   const allCompleted = todayHabits.every((h) => h.completedToday);
@@ -119,8 +121,10 @@ export const sendEveningReminder = async (
       parse_mode: 'Markdown',
       reply_markup: createEveningChecklistKeyboard(todayHabits),
     });
+    return true;
   } catch (error) {
     console.error(`Ошибка отправки вечернего напоминания для ${telegramId}:`, error);
+    return false;
   }
 };
 
@@ -174,17 +178,21 @@ export const checkAndSendReminders = async (
     // Отправляем если текущее время >= целевого
     if (currentTimeInMinutes >= targetTimeInMinutes) {
       if (type === 'morning') {
-        await sendMorningReminder(bot, user.telegramId, user.id, timezoneOffset);
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { lastMorningReminderDate: todayDate },
-        });
+        const sent = await sendMorningReminder(bot, user.telegramId, user.id, timezoneOffset);
+        if (sent) {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { lastMorningReminderDate: todayDate },
+          });
+        }
       } else {
-        await sendEveningReminder(bot, user.telegramId, user.id, timezoneOffset);
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { lastEveningReminderDate: todayDate },
-        });
+        const sent = await sendEveningReminder(bot, user.telegramId, user.id, timezoneOffset);
+        if (sent) {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { lastEveningReminderDate: todayDate },
+          });
+        }
       }
     }
   }
