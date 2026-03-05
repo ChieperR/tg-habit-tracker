@@ -7,6 +7,7 @@ import { parseTime, getTodayDate, isHabitDueToday } from '../utils/date.js';
 import { serializeCallback } from '../utils/callback.js';
 import { createMainMenuKeyboard, createEveningChecklistKeyboard } from '../bot/keyboards/index.js';
 import { InlineKeyboard } from 'grammy';
+import { getChangelogBanner } from '../changelog.js';
 
 /** Названия дней недели */
 const WEEKDAY_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
@@ -48,12 +49,14 @@ const formatHabitSchedule = (habit: HabitWithTodayStatus): string => {
  * @param telegramId - Telegram ID пользователя
  * @param userId - ID пользователя в БД
  * @param timezoneOffset - Смещение часового пояса
+ * @param lastSeenChangelog - ID последнего просмотренного changelog
  */
 export const sendMorningReminder = async (
   bot: Bot<BotContext>,
   telegramId: bigint,
   userId: number,
-  timezoneOffset: number
+  timezoneOffset: number,
+  lastSeenChangelog: number = 0
 ): Promise<boolean> => {
   const todayHabits = await getTodayHabits(userId, timezoneOffset);
 
@@ -70,6 +73,11 @@ export const sendMorningReminder = async (
   }
 
   message += '\nУдачного дня! 🍀';
+
+  const banner = getChangelogBanner({ lastSeenChangelog }, timezoneOffset);
+  if (banner) {
+    message += banner;
+  }
 
   try {
     await bot.api.sendMessage(telegramId.toString(), message, {
@@ -89,12 +97,14 @@ export const sendMorningReminder = async (
  * @param telegramId - Telegram ID пользователя
  * @param userId - ID пользователя в БД
  * @param timezoneOffset - Смещение часового пояса
+ * @param lastSeenChangelog - ID последнего просмотренного changelog
  */
 export const sendEveningReminder = async (
   bot: Bot<BotContext>,
   telegramId: bigint,
   userId: number,
-  timezoneOffset: number
+  timezoneOffset: number,
+  lastSeenChangelog: number = 0
 ): Promise<boolean> => {
   const habits = await getUserHabitsWithTodayStatus(userId, timezoneOffset);
   const todayHabits = habits.filter((h) => h.isDueToday);
@@ -114,6 +124,11 @@ export const sendEveningReminder = async (
   for (const habit of todayHabits) {
     const status = habit.completedToday ? '✅' : '⬜';
     message += `${status} ${habit.emoji} ${habit.name}\n`;
+  }
+
+  const banner = getChangelogBanner({ lastSeenChangelog }, timezoneOffset);
+  if (banner) {
+    message += banner;
   }
 
   try {
@@ -178,7 +193,7 @@ export const checkAndSendReminders = async (
     // Отправляем если текущее время >= целевого
     if (currentTimeInMinutes >= targetTimeInMinutes) {
       if (type === 'morning') {
-        const sent = await sendMorningReminder(bot, user.telegramId, user.id, timezoneOffset);
+        const sent = await sendMorningReminder(bot, user.telegramId, user.id, timezoneOffset, user.lastSeenChangelog);
         if (sent) {
           await prisma.user.update({
             where: { id: user.id },
@@ -186,7 +201,7 @@ export const checkAndSendReminders = async (
           });
         }
       } else {
-        const sent = await sendEveningReminder(bot, user.telegramId, user.id, timezoneOffset);
+        const sent = await sendEveningReminder(bot, user.telegramId, user.id, timezoneOffset, user.lastSeenChangelog);
         if (sent) {
           await prisma.user.update({
             where: { id: user.id },

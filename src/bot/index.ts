@@ -8,6 +8,7 @@ import { handleStats } from './commands/stats.js';
 import { handleSettings } from './commands/settings.js';
 import { handleDaily } from './commands/daily.js';
 import { handleAdmin } from './commands/admin.js';
+import { handleChangelog } from './commands/changelog.js';
 import { handleCallback } from './callbacks/index.js';
 import { handleTimezoneInput } from './handlers/timezoneInput.js';
 import {
@@ -57,6 +58,9 @@ export const createBot = (token: string): Bot<BotContext> => {
   
   // Команда администратора
   bot.command('admin', handleAdmin);
+
+  // Changelog (не в setMyCommands — доступна только через баннер)
+  bot.command('changelog', handleChangelog);
 
   // DEV команды (только в режиме разработки)
   if (process.env.NODE_ENV === 'development' || process.env.DEV === 'true') {

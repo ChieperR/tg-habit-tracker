@@ -1,6 +1,7 @@
 import { User } from '@prisma/client';
 import { prisma } from '../db/index.js';
 import { UserSettings } from '../types/index.js';
+import { LATEST_CHANGELOG_ID } from '../changelog.js';
 
 /**
  * Сервис для работы с пользователями
@@ -21,8 +22,9 @@ export const findOrCreateUser = async (telegramId: number): Promise<User> => {
     return existing;
   }
 
+  // Новый юзер стартует "в курсе" всех текущих обновлений
   return prisma.user.create({
-    data: { telegramId: BigInt(telegramId) },
+    data: { telegramId: BigInt(telegramId), lastSeenChangelog: LATEST_CHANGELOG_ID },
   });
 };
 
