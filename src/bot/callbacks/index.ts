@@ -3,6 +3,7 @@ import { BotContext } from '../../types/index.js';
 import { parseCallback, serializeCallback } from '../../utils/callback.js';
 import { safeEditMessage, safeAnswerCallback } from '../../utils/telegram.js';
 import { findOrCreateUser, updateUserSettings } from '../../services/userService.js';
+import { ADMIN_TELEGRAM_ID } from '../../config.js';
 import { toggleHabitCompletion, deleteHabit, getHabitById, getUserHabitsWithTodayStatus, updateHabitReminder } from '../../services/habitService.js';
 import { trackEvent } from '../../services/analyticsService.js';
 import { showHabitsList } from '../commands/habits.js';
@@ -125,6 +126,10 @@ export const handleCallback = async (ctx: BotContext): Promise<void> => {
         break;
 
       case 'analytics':
+        if (ctx.from?.id !== ADMIN_TELEGRAM_ID) {
+          await ctx.answerCallbackQuery();
+          break;
+        }
         await showAnalytics(ctx, action.period);
         await ctx.answerCallbackQuery();
         break;

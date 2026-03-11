@@ -32,8 +32,10 @@ export const handleStart = async (ctx: BotContext): Promise<void> => {
   const user = await findOrCreateUser(telegramId, source);
   ctx.session.dbUserId = user.id;
 
-  // Трекаем событие старта (fire-and-forget)
-  void trackEvent(user.id, 'start', { source });
+  // Трекаем событие старта только для новых пользователей (fire-and-forget)
+  if (user.isNew) {
+    void trackEvent(user.id, 'start', { source });
+  }
 
   const welcomeMessage = `
 🎯 *Привет! Я — твой трекер привычек*

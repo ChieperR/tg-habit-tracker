@@ -62,9 +62,12 @@ export type DailyReport = {
  * @param type - Тип события ('start' | 'checkin' | 'habit_create' | 'habit_delete' | 'reminder_sent')
  * @param metadata - Дополнительные данные
  */
+/** Типы аналитических событий */
+export type AnalyticsEventType = 'start' | 'checkin' | 'habit_create' | 'habit_delete' | 'reminder_sent';
+
 export const trackEvent = async (
   userId: number,
-  type: string,
+  type: AnalyticsEventType,
   metadata?: Record<string, unknown>
 ): Promise<void> => {
   try {
@@ -130,10 +133,47 @@ export const takeDailySnapshot = async (): Promise<void> => {
     where: { date: yesterday, completed: true },
   });
 
+  // Средний текущий стрик по активным привычкам
+  const activeHabitsList = await prisma.habit.findMany({
+    where: { isActive: true },
+    select: {
+      id: true,
+      logs: {
+        where: { completed: true },
+        orderBy: { date: 'desc' },
+        take: 100,
+        select: { date: true },
+      },
+    },
+  });
+
+  let totalStreaks = 0;
+  let streakCount = 0;
+  for (const habit of activeHabitsList) {
+    if (habit.logs.length === 0) continue;
+    // Считаем стрик: последовательные дни от вчера назад
+    const dates = habit.logs.map((l) => l.date).sort().reverse();
+    let streak = 0;
+    let expectedDate = yesterday;
+    for (const date of dates) {
+      if (date === expectedDate) {
+        streak++;
+        expectedDate = format(subDays(new Date(`${expectedDate}T12:00:00Z`), 1), 'yyyy-MM-dd');
+      } else if (date < expectedDate) {
+        break;
+      }
+    }
+    if (streak > 0) {
+      totalStreaks += streak;
+      streakCount++;
+    }
+  }
+  const avgStreak = streakCount > 0 ? Math.round((totalStreaks / streakCount) * 10) / 10 : 0;
+
   await prisma.dailySnapshot.upsert({
     where: { date: yesterday },
-    update: { totalUsers, newUsers, dau, mau, totalHabits, activeHabits, totalCheckins, avgStreak: 0 },
-    create: { date: yesterday, totalUsers, newUsers, dau, mau, totalHabits, activeHabits, totalCheckins, avgStreak: 0 },
+    update: { totalUsers, newUsers, dau, mau, totalHabits, activeHabits, totalCheckins, avgStreak },
+    create: { date: yesterday, totalUsers, newUsers, dau, mau, totalHabits, activeHabits, totalCheckins, avgStreak },
   });
 
   console.log(`[analytics] Снапшот за ${yesterday}: DAU=${dau}, newUsers=${newUsers}, checkins=${totalCheckins}`);
@@ -147,13 +187,15 @@ export const takeDailySnapshot = async (): Promise<void> => {
 export const getAnalytics = async (period: AnalyticsPeriod): Promise<AnalyticsData> => {
   const now = new Date();
 
-  const periodDays = period === '7d' ? 7 : period === '30d' ? 30 : period === '90d' ? 90 : 3650;
+  const isAll = period === 'all';
+  const periodDays = period === '7d' ? 7 : period === '30d' ? 30 : period === '90d' ? 90 : 0;
 
-  const startDate = format(subDays(now, periodDays), 'yyyy-MM-dd');
-  const prevStartDate = format(subDays(now, periodDays * 2), 'yyyy-MM-dd');
+  // Для 'all': берём от самого первого юзера
+  const startDate = isAll ? '2020-01-01' : format(subDays(now, periodDays), 'yyyy-MM-dd');
+  const prevStartDate = isAll ? '2020-01-01' : format(subDays(now, periodDays * 2), 'yyyy-MM-dd');
 
   const startDateUTC = new Date(`${startDate}T00:00:00.000Z`);
-  const prevStartDateUTC = new Date(`${prevStartDate}T00:00:00.000Z`);
+  const prevStartDateUTC = isAll ? startDateUTC : new Date(`${prevStartDate}T00:00:00.000Z`);
 
   // Всего пользователей
   const totalUsers = await prisma.user.count();
