@@ -21,19 +21,15 @@ const UNDELIVERABLE_ERRORS = [
 
 /**
  * Проверяет, является ли ошибка Telegram штатной (юзер заблокировал/удалился).
- * Если да — тихо логирует и отключает напоминания юзеру.
- * @returns true если ошибка обработана (штатная), false если неизвестная
+ * Если да — тихо логирует вместо полного стектрейса.
+ * @returns true если ошибка штатная (обработана), false если неизвестная
  */
-const handleDeliveryError = async (error: unknown, telegramId: bigint, userId: number): Promise<boolean> => {
+const handleDeliveryError = (error: unknown, telegramId: bigint): boolean => {
   const desc = (error as { description?: string })?.description ?? '';
   const isUndeliverable = UNDELIVERABLE_ERRORS.some((e) => desc.includes(e));
 
   if (isUndeliverable) {
-    console.log(`[reminder] Юзер ${telegramId} недоступен (${desc}) — отключаю напоминания`);
-    await prisma.user.update({
-      where: { id: userId },
-      data: { morningEnabled: false, eveningEnabled: false },
-    });
+    console.log(`[reminder] Юзер ${telegramId} недоступен: ${desc}`);
     return true;
   }
 
@@ -117,7 +113,7 @@ export const sendMorningReminder = async (
     });
     return true;
   } catch (error) {
-    const handled = await handleDeliveryError(error, telegramId, userId);
+    const handled = handleDeliveryError(error, telegramId);
     if (!handled) {
       console.error(`[reminder] Ошибка отправки утреннего для ${telegramId}:`, error);
     }
@@ -172,7 +168,7 @@ export const sendEveningReminder = async (
     });
     return true;
   } catch (error) {
-    const handled = await handleDeliveryError(error, telegramId, userId);
+    const handled = handleDeliveryError(error, telegramId);
     if (!handled) {
       console.error(`[reminder] Ошибка отправки вечернего для ${telegramId}:`, error);
     }
@@ -313,7 +309,7 @@ export const checkAndSendHabitReminders = async (
         });
         void trackEvent(habit.userId, 'reminder_sent', { type: 'habit', habitId: habit.id });
       } catch (error) {
-        const handled = await handleDeliveryError(error, habit.user.telegramId, habit.userId);
+        const handled = handleDeliveryError(error, habit.user.telegramId);
         if (!handled) {
           console.error(`[reminder] Ошибка напоминания привычки ${habit.id} для ${habit.user.telegramId}:`, error);
         }
