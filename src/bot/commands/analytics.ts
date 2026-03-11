@@ -102,8 +102,16 @@ export const showAnalytics = async (ctx: BotContext, period: AnalyticsPeriod = '
   });
 };
 
-/** Паттерн даты YYYY-MM-DD */
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** Паттерн даты ДД.ММ.ГГГГ */
+const DATE_RE = /^\d{2}\.\d{2}\.\d{4}$/;
+
+/**
+ * Конвертирует ДД.ММ.ГГГГ → YYYY-MM-DD
+ */
+const parseRuDate = (d: string): string => {
+  const [day, month, year] = d.split('.');
+  return `${year}-${month}-${day}`;
+};
 
 /**
  * Обработчик команды /analytics
@@ -127,16 +135,16 @@ export const handleAnalytics = async (ctx: BotContext): Promise<void> => {
 
     // Кастомный период: /analytics 2026-02-01 2026-03-01
     if (parts.length >= 2 && DATE_RE.test(parts[0]!) && DATE_RE.test(parts[1]!)) {
-      const from = parts[0]!;
-      const to = parts[1]!;
+      const from = parseRuDate(parts[0]!);
+      const to = parseRuDate(parts[1]!);
 
       if (from > to) {
-        await ctx.reply('❌ Начальная дата должна быть раньше конечной\nФормат: `/analytics 2026-02-01 2026-03-01`', { parse_mode: 'Markdown' });
+        await ctx.reply('❌ Начальная дата должна быть раньше конечной\nФормат: `/analytics 01.02.2026 01.03.2026`', { parse_mode: 'Markdown' });
         return;
       }
 
       const data = await getAnalyticsForRange(from, to);
-      const label = `${from} → ${to}`;
+      const label = `${parts[0]} → ${parts[1]}`;
       const message = formatAnalyticsMessage(data, label);
 
       await ctx.reply(message, { parse_mode: 'Markdown' });
@@ -148,7 +156,7 @@ export const handleAnalytics = async (ctx: BotContext): Promise<void> => {
     const message = formatAnalyticsMessage(data);
     const keyboard = buildPeriodKeyboard('7d');
 
-    await ctx.reply(message + '\n\n_Свой период:_ `/analytics 2026-02-01 2026-03-01`', {
+    await ctx.reply(message + '\n\n_Свой период:_ `/analytics 01.02.2026 01.03.2026`', {
       parse_mode: 'Markdown',
       reply_markup: keyboard,
     });
