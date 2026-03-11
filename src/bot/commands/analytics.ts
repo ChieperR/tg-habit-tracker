@@ -1,7 +1,7 @@
 import { InlineKeyboard } from 'grammy';
 import { BotContext } from '../../types/index.js';
 import { ADMIN_TELEGRAM_ID } from '../../config.js';
-import { getAnalytics, AnalyticsPeriod } from '../../services/analyticsService.js';
+import { getAnalytics, getAnalyticsForRange, AnalyticsPeriod } from '../../services/analyticsService.js';
 import { serializeCallback } from '../../utils/callback.js';
 import { safeEditMessage } from '../../utils/telegram.js';
 
@@ -45,16 +45,17 @@ const formatGrowth = (current: number, prev: number): string => {
 
 /**
  * Форматирует данные аналитики в сообщение Telegram (Markdown)
+ * @param customLabel - Кастомный лейбл периода (для произвольных дат)
  */
-const formatAnalyticsMessage = (data: Awaited<ReturnType<typeof getAnalytics>>): string => {
-  const periodLabel =
-    data.period === '7d'
+const formatAnalyticsMessage = (data: Awaited<ReturnType<typeof getAnalytics>>, customLabel?: string): string => {
+  const periodLabel = customLabel ??
+    (data.period === '7d'
       ? '7 дней'
       : data.period === '30d'
         ? '30 дней'
         : data.period === '90d'
           ? '90 дней'
-          : 'Всё время';
+          : 'Всё время');
 
   const growthLine = formatGrowth(data.newUsers, data.prevNewUsers);
 
@@ -101,25 +102,53 @@ export const showAnalytics = async (ctx: BotContext, period: AnalyticsPeriod = '
   });
 };
 
+/** Паттерн даты YYYY-MM-DD */
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 /**
  * Обработчик команды /analytics
  * Доступна только администратору (ADMIN_TELEGRAM_ID)
+ *
+ * Форматы:
+ * - `/analytics` — стандартный вид (7 дней + кнопки)
+ * - `/analytics 2026-02-01 2026-03-01` — произвольный период
  * @param ctx - Контекст бота
  */
 export const handleAnalytics = async (ctx: BotContext): Promise<void> => {
   const fromId = ctx.from?.id;
 
   if (!fromId || fromId !== ADMIN_TELEGRAM_ID) {
-    // Silently ignore — не раскрываем существование команды
     return;
   }
 
   try {
+    const args = typeof ctx.match === 'string' ? ctx.match.trim() : '';
+    const parts = args.split(/\s+/).filter(Boolean);
+
+    // Кастомный период: /analytics 2026-02-01 2026-03-01
+    if (parts.length >= 2 && DATE_RE.test(parts[0]!) && DATE_RE.test(parts[1]!)) {
+      const from = parts[0]!;
+      const to = parts[1]!;
+
+      if (from > to) {
+        await ctx.reply('❌ Начальная дата должна быть раньше конечной\nФормат: `/analytics 2026-02-01 2026-03-01`', { parse_mode: 'Markdown' });
+        return;
+      }
+
+      const data = await getAnalyticsForRange(from, to);
+      const label = `${from} → ${to}`;
+      const message = formatAnalyticsMessage(data, label);
+
+      await ctx.reply(message, { parse_mode: 'Markdown' });
+      return;
+    }
+
+    // Стандартный вид
     const data = await getAnalytics('7d');
     const message = formatAnalyticsMessage(data);
     const keyboard = buildPeriodKeyboard('7d');
 
-    await ctx.reply(message, {
+    await ctx.reply(message + '\n\n_Свой период:_ `/analytics 2026-02-01 2026-03-01`', {
       parse_mode: 'Markdown',
       reply_markup: keyboard,
     });

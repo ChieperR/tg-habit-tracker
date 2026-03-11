@@ -291,6 +291,101 @@ export const getAnalytics = async (period: AnalyticsPeriod): Promise<AnalyticsDa
 };
 
 /**
+ * Возвращает аналитические данные за произвольный диапазон дат.
+ * @param from - Начало периода (YYYY-MM-DD)
+ * @param to - Конец периода (YYYY-MM-DD)
+ * @returns Данные аналитики
+ */
+export const getAnalyticsForRange = async (from: string, to: string): Promise<AnalyticsData> => {
+  const fromUTC = new Date(`${from}T00:00:00.000Z`);
+  const toUTC = new Date(`${to}T23:59:59.999Z`);
+
+  const periodDays = Math.max(1, differenceInDays(toUTC, fromUTC));
+  const prevFrom = format(subDays(fromUTC, periodDays), 'yyyy-MM-dd');
+  const prevFromUTC = new Date(`${prevFrom}T00:00:00.000Z`);
+
+  // Всего пользователей на конец периода
+  const totalUsers = await prisma.user.count({
+    where: { createdAt: { lte: toUTC } },
+  });
+
+  // Новых за период
+  const newUsers = await prisma.user.count({
+    where: { createdAt: { gte: fromUTC, lte: toUTC } },
+  });
+
+  // Новых за предыдущий аналогичный период
+  const prevNewUsers = await prisma.user.count({
+    where: { createdAt: { gte: prevFromUTC, lt: fromUTC } },
+  });
+
+  // DAU среднее и MAU из DailySnapshot
+  const snapshots = await prisma.dailySnapshot.findMany({
+    where: { date: { gte: from, lte: to } },
+    select: { dau: true, mau: true },
+    orderBy: { date: 'asc' },
+  });
+
+  const dauAvg =
+    snapshots.length > 0
+      ? Math.round(snapshots.reduce((sum, s) => sum + s.dau, 0) / snapshots.length)
+      : 0;
+
+  const lastSnapshot = snapshots[snapshots.length - 1];
+  const mau = lastSnapshot ? lastSnapshot.mau : 0;
+
+  // Check-ins за период
+  const totalCheckins = await prisma.habitLog.count({
+    where: { date: { gte: from, lte: to }, completed: true },
+  });
+
+  // D7 Retention (глобальный)
+  const now = new Date();
+  const usersForD7 = await prisma.user.findMany({
+    where: { createdAt: { lte: subDays(now, 7) } },
+    select: { createdAt: true, lastActiveAt: true },
+  });
+  const d7Retained = usersForD7.filter(
+    (u) => u.lastActiveAt && differenceInDays(u.lastActiveAt, u.createdAt) >= 7
+  ).length;
+  const retentionD7 =
+    usersForD7.length > 0 ? Math.round((d7Retained / usersForD7.length) * 100) : 0;
+
+  const usersForD30 = await prisma.user.findMany({
+    where: { createdAt: { lte: subDays(now, 30) } },
+    select: { createdAt: true, lastActiveAt: true },
+  });
+  const d30Retained = usersForD30.filter(
+    (u) => u.lastActiveAt && differenceInDays(u.lastActiveAt, u.createdAt) >= 30
+  ).length;
+  const retentionD30 =
+    usersForD30.length > 0 ? Math.round((d30Retained / usersForD30.length) * 100) : 0;
+
+  // Топ источников (за период)
+  const sourceGroups = await prisma.user.groupBy({
+    by: ['source'],
+    where: { createdAt: { gte: fromUTC, lte: toUTC } },
+    _count: { id: true },
+    orderBy: { _count: { id: 'desc' } },
+    take: 5,
+  });
+  const topSources: [string, number][] = sourceGroups.map((g) => [g.source, g._count.id]);
+
+  return {
+    period: 'all', // используем 'all' как тип для кастомного периода
+    totalUsers,
+    newUsers,
+    prevNewUsers,
+    dauAvg,
+    mau,
+    totalCheckins,
+    retentionD7,
+    retentionD30,
+    topSources,
+  };
+};
+
+/**
  * Формирует данные ежедневного отчёта для отправки администратору.
  * Использует последний DailySnapshot (за вчера).
  * @returns Данные ежедневного отчёта
