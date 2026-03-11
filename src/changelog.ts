@@ -42,10 +42,11 @@ export const getChangelogBanner = (user: { lastSeenChangelog: number }, timezone
     return null;
   }
 
-  const latestDate = new Date(latestEntry.date);
-  const now = new Date(Date.now() + timezoneOffset * 60000);
-  // Разница в полных сутках
-  const diffMs = now.getTime() - latestDate.getTime();
+  // Сравниваем строки дат в таймзоне пользователя (консистентно с utils/date.ts)
+  const nowUtcMs = Date.now() + timezoneOffset * 60000;
+  const todayStr = new Date(nowUtcMs).toISOString().slice(0, 10);
+  const entryDate = latestEntry.date; // YYYY-MM-DD
+  const diffMs = new Date(todayStr).getTime() - new Date(entryDate).getTime();
   const diffDays = diffMs / (1000 * 60 * 60 * 24);
 
   if (diffDays > 3) {

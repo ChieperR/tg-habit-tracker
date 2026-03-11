@@ -1,6 +1,7 @@
 import { Keyboard } from 'grammy';
 import { BotContext } from '../../types/index.js';
 import { findOrCreateUser } from '../../services/userService.js';
+import { trackEvent } from '../../services/analyticsService.js';
 import { createMainMenuKeyboard } from '../keyboards/index.js';
 
 /**
@@ -24,8 +25,17 @@ export const handleStart = async (ctx: BotContext): Promise<void> => {
     return;
   }
 
-  const user = await findOrCreateUser(telegramId);
+  // Парсим source из deep link параметра (/start src_pikabu → source='src_pikabu')
+  const startParam = typeof ctx.match === 'string' ? ctx.match.trim() : '';
+  const source = startParam.length > 0 ? startParam : 'organic';
+
+  const user = await findOrCreateUser(telegramId, source);
   ctx.session.dbUserId = user.id;
+
+  // Трекаем событие старта только для новых пользователей (fire-and-forget)
+  if (user.isNew) {
+    void trackEvent(user.id, 'start', { source });
+  }
 
   const welcomeMessage = `
 🎯 *Привет! Я — твой трекер привычек*

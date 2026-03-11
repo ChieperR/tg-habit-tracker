@@ -138,6 +138,7 @@ export type CallbackAction =
   | { type: 'settings_morning'; time: string }
   | { type: 'settings_evening'; time: string }
   | { type: 'settings_reminders_toggle' }
+  | { type: 'analytics'; period: '7d' | '30d' | '90d' | 'all' }
   | { type: 'back_to_menu' }
   | { type: 'save_day' }
   | { type: 'noop' };

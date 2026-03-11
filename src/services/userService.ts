@@ -9,23 +9,31 @@ import { LATEST_CHANGELOG_ID } from '../changelog.js';
  */
 
 /**
- * Находит или создаёт пользователя по Telegram ID
+ * Находит или создаёт пользователя по Telegram ID.
+ * Source записывается только при первом создании — для существующих пользователей игнорируется.
  * @param telegramId - ID пользователя в Telegram
+ * @param source - Источник привлечения (deep link параметр), по умолчанию 'organic'
  * @returns Пользователь из базы данных
  */
-export const findOrCreateUser = async (telegramId: number): Promise<User> => {
+export const findOrCreateUser = async (telegramId: number, source?: string): Promise<User & { isNew: boolean }> => {
   const existing = await prisma.user.findUnique({
     where: { telegramId: BigInt(telegramId) },
   });
 
   if (existing) {
-    return existing;
+    return { ...existing, isNew: false };
   }
 
   // Новый юзер стартует "в курсе" всех текущих обновлений
-  return prisma.user.create({
-    data: { telegramId: BigInt(telegramId), lastSeenChangelog: LATEST_CHANGELOG_ID },
+  const created = await prisma.user.create({
+    data: {
+      telegramId: BigInt(telegramId),
+      lastSeenChangelog: LATEST_CHANGELOG_ID,
+      source: source ?? 'organic',
+    },
   });
+
+  return { ...created, isNew: true };
 };
 
 /**

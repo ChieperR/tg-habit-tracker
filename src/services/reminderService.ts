@@ -8,6 +8,33 @@ import { serializeCallback } from '../utils/callback.js';
 import { createMainMenuKeyboard, createEveningChecklistKeyboard } from '../bot/keyboards/index.js';
 import { InlineKeyboard } from 'grammy';
 import { getChangelogBanner } from '../changelog.js';
+import { trackEvent } from './analyticsService.js';
+
+/** Описания ошибок Telegram, при которых не нужно повторять отправку */
+const UNDELIVERABLE_ERRORS = [
+  'bot was blocked by the user',
+  'chat not found',
+  'user is deactivated',
+  'PEER_ID_INVALID',
+  'bot can\'t initiate conversation',
+];
+
+/**
+ * Проверяет, является ли ошибка Telegram штатной (юзер заблокировал/удалился).
+ * Если да — тихо логирует вместо полного стектрейса.
+ * @returns true если ошибка штатная (обработана), false если неизвестная
+ */
+const handleDeliveryError = (error: unknown, telegramId: bigint): boolean => {
+  const desc = (error as { description?: string })?.description ?? '';
+  const isUndeliverable = UNDELIVERABLE_ERRORS.some((e) => desc.includes(e));
+
+  if (isUndeliverable) {
+    console.log(`[reminder] Юзер ${telegramId} недоступен: ${desc}`);
+    return true;
+  }
+
+  return false;
+};
 
 /** Названия дней недели */
 const WEEKDAY_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
@@ -86,7 +113,10 @@ export const sendMorningReminder = async (
     });
     return true;
   } catch (error) {
-    console.error(`Ошибка отправки утреннего напоминания для ${telegramId}:`, error);
+    const handled = handleDeliveryError(error, telegramId);
+    if (!handled) {
+      console.error(`[reminder] Ошибка отправки утреннего для ${telegramId}:`, error);
+    }
     return false;
   }
 };
@@ -138,7 +168,10 @@ export const sendEveningReminder = async (
     });
     return true;
   } catch (error) {
-    console.error(`Ошибка отправки вечернего напоминания для ${telegramId}:`, error);
+    const handled = handleDeliveryError(error, telegramId);
+    if (!handled) {
+      console.error(`[reminder] Ошибка отправки вечернего для ${telegramId}:`, error);
+    }
     return false;
   }
 };
@@ -199,6 +232,7 @@ export const checkAndSendReminders = async (
             where: { id: user.id },
             data: { lastMorningReminderDate: todayDate },
           });
+          void trackEvent(user.id, 'reminder_sent', { type: 'morning' });
         }
       } else {
         const sent = await sendEveningReminder(bot, user.telegramId, user.id, timezoneOffset, user.lastSeenChangelog);
@@ -207,6 +241,7 @@ export const checkAndSendReminders = async (
             where: { id: user.id },
             data: { lastEveningReminderDate: todayDate },
           });
+          void trackEvent(user.id, 'reminder_sent', { type: 'evening' });
         }
       }
     }
@@ -272,8 +307,12 @@ export const checkAndSendHabitReminders = async (
           parse_mode: 'Markdown',
           reply_markup: keyboard,
         });
+        void trackEvent(habit.userId, 'reminder_sent', { type: 'habit', habitId: habit.id });
       } catch (error) {
-        console.error(`Ошибка отправки напоминания привычки ${habit.id} для ${habit.user.telegramId}:`, error);
+        const handled = handleDeliveryError(error, habit.user.telegramId);
+        if (!handled) {
+          console.error(`[reminder] Ошибка напоминания привычки ${habit.id} для ${habit.user.telegramId}:`, error);
+        }
       }
 
       await prisma.habit.update({
