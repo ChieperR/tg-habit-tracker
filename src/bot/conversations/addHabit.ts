@@ -1,6 +1,7 @@
 import { BotContext, BotConversation, FrequencyType } from '../../types/index.js';
 import { findOrCreateUser } from '../../services/userService.js';
 import { createHabit } from '../../services/habitService.js';
+import { trackEvent } from '../../services/analyticsService.js';
 import { createMainMenuKeyboard, createFrequencyTypeKeyboard, createEmojiKeyboard, createWeekdaysKeyboard, createHabitCreatedKeyboard } from '../keyboards/index.js';
 import { serializeCallback } from '../../utils/callback.js';
 
@@ -241,6 +242,11 @@ export const addHabitConversation = async (
       userId: user.id,
     })
   );
+
+  // Трекаем создание привычки (внутри external, чтобы не дублировать при replay)
+  await conversation.external(async () => {
+    await trackEvent(user.id, 'habit_create', { habitId: newHabit.id });
+  });
 
   const scheduleText = formatSchedule(frequencyType, frequencyDays, weekdays?.split(',').map(Number));
 

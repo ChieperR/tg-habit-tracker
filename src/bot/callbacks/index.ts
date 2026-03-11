@@ -4,10 +4,12 @@ import { parseCallback, serializeCallback } from '../../utils/callback.js';
 import { safeEditMessage, safeAnswerCallback } from '../../utils/telegram.js';
 import { findOrCreateUser, updateUserSettings } from '../../services/userService.js';
 import { toggleHabitCompletion, deleteHabit, getHabitById, getUserHabitsWithTodayStatus, updateHabitReminder } from '../../services/habitService.js';
+import { trackEvent } from '../../services/analyticsService.js';
 import { showHabitsList } from '../commands/habits.js';
 import { showStats } from '../commands/stats.js';
 import { showWeekly, getPrevWeekStart, getNextWeekStart } from '../commands/weekly.js';
 import { showSettings } from '../commands/settings.js';
+import { showAnalytics } from '../commands/analytics.js';
 import { createMainMenuKeyboard, createDeleteConfirmKeyboard, createEveningChecklistKeyboard, createHabitDetailsKeyboard } from '../keyboards/index.js';
 
 /**
@@ -119,6 +121,11 @@ export const handleCallback = async (ctx: BotContext): Promise<void> => {
 
       case 'back_to_menu':
         await showMainMenu(ctx);
+        await ctx.answerCallbackQuery();
+        break;
+
+      case 'analytics':
+        await showAnalytics(ctx, action.period);
         await ctx.answerCallbackQuery();
         break;
 
@@ -234,6 +241,11 @@ const handleHabitToggle = async (
   const newStatus = await toggleHabitCompletion(habitId, timezoneOffset, date);
   const statusText = newStatus ? '✅ Выполнено!' : '⬜ Отменено';
 
+  // Трекаем check-in (fire-and-forget)
+  if (newStatus) {
+    void trackEvent(user.id, 'checkin', { habitId });
+  }
+
   await safeAnswerCallback(ctx, statusText);
 
   if (source === 'habit_reminder') {
@@ -322,6 +334,8 @@ const handleHabitConfirmDelete = async (ctx: BotContext, habitId: number): Promi
   }
 
   await deleteHabit(habitId);
+  // Трекаем удаление привычки (fire-and-forget)
+  void trackEvent(user.id, 'habit_delete', { habitId });
   await ctx.answerCallbackQuery('🗑 Привычка удалена');
   await showHabitsList(ctx);
 };

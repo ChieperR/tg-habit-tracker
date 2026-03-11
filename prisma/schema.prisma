@@ -31,11 +31,57 @@ model User {
   lastEveningReminderDate String?
   /// ID последнего просмотренного обновления changelog
   lastSeenChangelog Int @default(0)
+  /// Источник привлечения пользователя (deep link параметр)
+  source String @default("organic")
+  /// Дата последней активности
+  lastActiveAt DateTime?
   /// Дата создания аккаунта
   createdAt DateTime @default(now())
-  
+
   /// Привычки пользователя
   habits Habit[]
+  /// Аналитические события
+  analyticsEvents AnalyticsEvent[]
+}
+
+/// Аналитическое событие
+model AnalyticsEvent {
+  id        Int      @id @default(autoincrement())
+  /// Тип события: 'start' | 'checkin' | 'habit_create' | 'habit_delete' | 'reminder_sent'
+  type      String
+  /// JSON с дополнительными данными (habitId, source и т.д.)
+  metadata  String?
+  /// Дата создания события
+  createdAt DateTime @default(now())
+
+  /// Пользователь
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId Int
+}
+
+/// Ежедневный снапшот агрегатов
+model DailySnapshot {
+  id            Int      @id @default(autoincrement())
+  /// Дата снапшота (YYYY-MM-DD)
+  date          String   @unique
+  /// Всего пользователей на момент снапшота
+  totalUsers    Int
+  /// Новых пользователей за день
+  newUsers      Int
+  /// DAU — уникальные пользователи с check-in за день
+  dau           Int
+  /// MAU — уникальные пользователи с check-in за 30 дней
+  mau           Int
+  /// Всего привычек (включая неактивные)
+  totalHabits   Int
+  /// Активных привычек
+  activeHabits  Int
+  /// Выполнений привычек за день
+  totalCheckins Int
+  /// Средний текущий стрик
+  avgStreak     Float
+  /// Дата создания записи
+  createdAt     DateTime @default(now())
 }
 
 /// Привычка

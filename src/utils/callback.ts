@@ -53,6 +53,8 @@ export const serializeCallback = (action: CallbackAction): string => {
       return 'menu';
     case 'save_day':
       return 'save';
+    case 'analytics':
+      return `an:${action.period}`;
     case 'noop':
       return 'noop';
   }
@@ -146,6 +148,13 @@ export const parseCallback = (data: string): CallbackAction | null => {
           return { type: 'settings_reminders_toggle' };
       }
       break;
+    }
+    case 'an': {
+      const period = parts[1];
+      if (period === '7d' || period === '30d' || period === '90d' || period === 'all') {
+        return { type: 'analytics', period };
+      }
+      return null;
     }
     case 'menu':
       return { type: 'back_to_menu' };
