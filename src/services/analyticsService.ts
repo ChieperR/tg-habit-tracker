@@ -110,19 +110,34 @@ export const takeDailySnapshot = async (): Promise<void> => {
     },
   });
 
-  // DAU: уникальные пользователи с check-in за вчера
-  const dauLogs = await prisma.habitLog.findMany({
+  // DAU: уникальные пользователи с check-in за вчера (groupBy по userId через Habit relation)
+  const dauGroups = await prisma.habitLog.groupBy({
+    by: ['habitId'],
     where: { date: yesterday, completed: true },
-    select: { habit: { select: { userId: true } } },
   });
-  const dau = new Set(dauLogs.map((l) => l.habit.userId)).size;
+  // Нужно достать уникальные userId — получаем привычки для этих habitId
+  const dauHabitIds = dauGroups.map((g) => g.habitId);
+  const dauHabits = dauHabitIds.length > 0
+    ? await prisma.habit.findMany({
+        where: { id: { in: dauHabitIds } },
+        select: { userId: true },
+      })
+    : [];
+  const dau = new Set(dauHabits.map((h) => h.userId)).size;
 
   // MAU: уникальные пользователи с check-in за последние 30 дней
-  const mauLogs = await prisma.habitLog.findMany({
+  const mauGroups = await prisma.habitLog.groupBy({
+    by: ['habitId'],
     where: { completed: true, date: { gte: thirtyDaysAgo } },
-    select: { habit: { select: { userId: true } } },
   });
-  const mau = new Set(mauLogs.map((l) => l.habit.userId)).size;
+  const mauHabitIds = mauGroups.map((g) => g.habitId);
+  const mauHabits = mauHabitIds.length > 0
+    ? await prisma.habit.findMany({
+        where: { id: { in: mauHabitIds } },
+        select: { userId: true },
+      })
+    : [];
+  const mau = new Set(mauHabits.map((h) => h.userId)).size;
 
   // Привычки
   const totalHabits = await prisma.habit.count();

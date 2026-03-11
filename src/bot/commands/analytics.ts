@@ -75,7 +75,7 @@ const formatAnalyticsMessage = (data: Awaited<ReturnType<typeof getAnalytics>>):
     `• MAU (последний): *${data.mau}*`,
     `• Check-in'ов за период: *${data.totalCheckins}*`,
     ``,
-    `🔄 *Retention*`,
+    `🔄 *Retention* _(глобальный, все когорты)_`,
     `• D7: *${data.retentionD7}%*`,
     `• D30: *${data.retentionD30}%*`,
     ``,

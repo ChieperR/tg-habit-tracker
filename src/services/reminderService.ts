@@ -8,6 +8,7 @@ import { serializeCallback } from '../utils/callback.js';
 import { createMainMenuKeyboard, createEveningChecklistKeyboard } from '../bot/keyboards/index.js';
 import { InlineKeyboard } from 'grammy';
 import { getChangelogBanner } from '../changelog.js';
+import { trackEvent } from './analyticsService.js';
 
 /** Названия дней недели */
 const WEEKDAY_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
@@ -199,6 +200,7 @@ export const checkAndSendReminders = async (
             where: { id: user.id },
             data: { lastMorningReminderDate: todayDate },
           });
+          void trackEvent(user.id, 'reminder_sent', { type: 'morning' });
         }
       } else {
         const sent = await sendEveningReminder(bot, user.telegramId, user.id, timezoneOffset, user.lastSeenChangelog);
@@ -207,6 +209,7 @@ export const checkAndSendReminders = async (
             where: { id: user.id },
             data: { lastEveningReminderDate: todayDate },
           });
+          void trackEvent(user.id, 'reminder_sent', { type: 'evening' });
         }
       }
     }
@@ -272,6 +275,7 @@ export const checkAndSendHabitReminders = async (
           parse_mode: 'Markdown',
           reply_markup: keyboard,
         });
+        void trackEvent(habit.userId, 'reminder_sent', { type: 'habit', habitId: habit.id });
       } catch (error) {
         console.error(`Ошибка отправки напоминания привычки ${habit.id} для ${habit.user.telegramId}:`, error);
       }
