@@ -10,6 +10,36 @@ import { InlineKeyboard } from 'grammy';
 import { getChangelogBanner } from '../changelog.js';
 import { trackEvent } from './analyticsService.js';
 
+/** Описания ошибок Telegram, при которых не нужно повторять отправку */
+const UNDELIVERABLE_ERRORS = [
+  'bot was blocked by the user',
+  'chat not found',
+  'user is deactivated',
+  'PEER_ID_INVALID',
+  'bot can\'t initiate conversation',
+];
+
+/**
+ * Проверяет, является ли ошибка Telegram штатной (юзер заблокировал/удалился).
+ * Если да — тихо логирует и отключает напоминания юзеру.
+ * @returns true если ошибка обработана (штатная), false если неизвестная
+ */
+const handleDeliveryError = async (error: unknown, telegramId: bigint, userId: number): Promise<boolean> => {
+  const desc = (error as { description?: string })?.description ?? '';
+  const isUndeliverable = UNDELIVERABLE_ERRORS.some((e) => desc.includes(e));
+
+  if (isUndeliverable) {
+    console.log(`[reminder] Юзер ${telegramId} недоступен (${desc}) — отключаю напоминания`);
+    await prisma.user.update({
+      where: { id: userId },
+      data: { morningEnabled: false, eveningEnabled: false },
+    });
+    return true;
+  }
+
+  return false;
+};
+
 /** Названия дней недели */
 const WEEKDAY_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 
@@ -87,7 +117,10 @@ export const sendMorningReminder = async (
     });
     return true;
   } catch (error) {
-    console.error(`Ошибка отправки утреннего напоминания для ${telegramId}:`, error);
+    const handled = await handleDeliveryError(error, telegramId, userId);
+    if (!handled) {
+      console.error(`[reminder] Ошибка отправки утреннего для ${telegramId}:`, error);
+    }
     return false;
   }
 };
@@ -139,7 +172,10 @@ export const sendEveningReminder = async (
     });
     return true;
   } catch (error) {
-    console.error(`Ошибка отправки вечернего напоминания для ${telegramId}:`, error);
+    const handled = await handleDeliveryError(error, telegramId, userId);
+    if (!handled) {
+      console.error(`[reminder] Ошибка отправки вечернего для ${telegramId}:`, error);
+    }
     return false;
   }
 };
@@ -277,7 +313,10 @@ export const checkAndSendHabitReminders = async (
         });
         void trackEvent(habit.userId, 'reminder_sent', { type: 'habit', habitId: habit.id });
       } catch (error) {
-        console.error(`Ошибка отправки напоминания привычки ${habit.id} для ${habit.user.telegramId}:`, error);
+        const handled = await handleDeliveryError(error, habit.user.telegramId, habit.userId);
+        if (!handled) {
+          console.error(`[reminder] Ошибка напоминания привычки ${habit.id} для ${habit.user.telegramId}:`, error);
+        }
       }
 
       await prisma.habit.update({
