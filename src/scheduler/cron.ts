@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { Bot } from 'grammy';
 import { BotContext } from '../types/index.js';
-import { checkAndSendReminders, checkAndSendHabitReminders } from '../services/reminderService.js';
+import { checkAndSendReminders, checkAndSendHabitReminders, resetBlockedTracking } from '../services/reminderService.js';
 import { takeDailySnapshot, getDailyReport } from '../services/analyticsService.js';
 import { ADMIN_TELEGRAM_ID } from '../config.js';
 
@@ -39,6 +39,7 @@ export const startScheduler = (bot: Bot<BotContext>): void => {
     isRunning = true;
 
     try {
+      resetBlockedTracking();
       await checkAndSendReminders(bot, 'morning');
       await checkAndSendReminders(bot, 'evening');
       await checkAndSendHabitReminders(bot);

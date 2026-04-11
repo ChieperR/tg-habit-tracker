@@ -2,6 +2,7 @@ import { BotContext } from '../../types/index.js';
 import { findOrCreateUser } from '../../services/userService.js';
 import { getUserStats, formatStatsMessage } from '../../services/statsService.js';
 import { createStatsKeyboard } from '../keyboards/index.js';
+import { trackEvent } from '../../services/analyticsService.js';
 
 /**
  * Обработчик команды /stats
@@ -20,6 +21,7 @@ export const handleStats = async (ctx: BotContext): Promise<void> => {
 
   const timezoneOffset = user.timezoneOffset ?? undefined;
   const stats = await getUserStats(user.id, timezoneOffset);
+  void trackEvent(user.id, 'view_stats');
   const message = await formatStatsMessage(stats, user.id, timezoneOffset);
 
   await ctx.reply(message, {

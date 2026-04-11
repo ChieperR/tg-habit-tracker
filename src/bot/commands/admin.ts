@@ -1,6 +1,7 @@
 import { BotContext } from '../../types/index.js';
 import { ADMIN_TELEGRAM_ID } from '../../config.js';
 import { getBotStats } from '../../services/adminService.js';
+import { getUserSegments } from '../../services/analyticsService.js';
 
 /**
  * Обработчик команды /admin — статистика бота (только для администратора)
@@ -54,8 +55,15 @@ export const handleAdmin = async (ctx: BotContext): Promise<void> => {
   }
 
   try {
-    const stats = await getBotStats();
-    const message = formatAdminMessage(stats);
+    const [stats, segments] = await Promise.all([getBotStats(), getUserSegments()]);
+    let message = formatAdminMessage(stats);
+
+    message += '\n\n🎯 *Сегментация*\n';
+    message += `• Power (5+/7д): *${segments.power}*\n`;
+    message += `• Active (1-4/7д): *${segments.active}*\n`;
+    message += `• Dormant (8-30д): *${segments.dormant}*\n`;
+    message += `• Churned (30д+): *${segments.churned}*\n`;
+    message += `• Zombie (неактивен + напоминания): *${segments.zombie}*`;
 
     await ctx.reply(message, { parse_mode: 'Markdown' });
   } catch (err) {

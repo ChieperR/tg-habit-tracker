@@ -5,6 +5,7 @@ import { createHabitsListKeyboard, createMainMenuKeyboard } from '../keyboards/i
 import { safeEditMessage } from '../../utils/telegram.js';
 import { getTodayDate, formatDayHeader } from '../../utils/date.js';
 import { getChangelogBanner } from '../../changelog.js';
+import { trackEvent } from '../../services/analyticsService.js';
 
 /**
  * Собирает текст сообщения со списком привычек
@@ -67,6 +68,7 @@ export const handleHabits = async (ctx: BotContext): Promise<void> => {
   const timezoneOffset = user.timezoneOffset ?? 0;
   const todayDate = getTodayDate(timezoneOffset);
   const habits = await getUserHabitsWithTodayStatus(user.id, timezoneOffset);
+  void trackEvent(user.id, 'view_habits');
 
   if (habits.length === 0) {
     await ctx.reply(

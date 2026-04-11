@@ -60,6 +60,7 @@ src/
 │   ├── habitService.ts         # CRUD for habits, isDueToday logic
 │   ├── statsService.ts         # getUserStats, formatStatsMessage, streak calc
 │   ├── weeklyService.ts        # Weekly calendar: habit rows with DayState per day
+│   ├── analyticsService.ts      # Event tracking, retention, segmentation, funnel, habit health
 │   └── reminderService.ts      # checkAndSendReminders (morning/evening/habit)
 ├── types/
 │   └── index.ts                # All shared TS types (BotContext, CallbackAction, etc.)
@@ -210,7 +211,9 @@ Model fields in schema: use `///` triple-slash comments (Prisma convention)
 | `/settings` | `commands/settings.ts` | Reminder times + timezone |
 | `/help` | `commands/help.ts` | Help text |
 | `/daily` | `commands/daily.ts` | **DEV ONLY** — simulate morning reminder |
-| `/admin` | `commands/admin.ts` | Admin only — bot statistics (silently ignores non-admin) |
+| `/admin` | `commands/admin.ts` | Admin only — bot statistics + segmentation (silently ignores non-admin) |
+| `/analytics` | `commands/analytics.ts` | Admin only — detailed analytics with period selector + custom date range |
+| `/funnel` | `commands/funnel.ts` | Admin only — activation funnel, habit health, reminder effectiveness, streak breaks |
 | `/changelog` | `commands/changelog.ts` | Shows new changelog entries since last seen; not in setMyCommands (discoverable via banner only) |
 
 ### Callback Actions (all types in `types/index.ts`)

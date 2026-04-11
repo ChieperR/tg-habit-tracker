@@ -9,6 +9,7 @@ import { handleSettings } from './commands/settings.js';
 import { handleDaily } from './commands/daily.js';
 import { handleAdmin } from './commands/admin.js';
 import { handleAnalytics } from './commands/analytics.js';
+import { handleFunnel } from './commands/funnel.js';
 import { handleChangelog } from './commands/changelog.js';
 import { handleCallback } from './callbacks/index.js';
 import { handleTimezoneInput } from './handlers/timezoneInput.js';
@@ -60,6 +61,7 @@ export const createBot = (token: string): Bot<BotContext> => {
   // Команды администратора
   bot.command('admin', handleAdmin);
   bot.command('analytics', handleAnalytics);
+  bot.command('funnel', handleFunnel);
 
   // Changelog (не в setMyCommands — доступна только через баннер)
   bot.command('changelog', handleChangelog);
