@@ -1,4 +1,4 @@
-import { format, subDays, differenceInDays } from 'date-fns';
+import { format, subDays, differenceInDays, addDays } from 'date-fns';
 import { prisma } from '../db/index.js';
 
 /**
@@ -87,6 +87,52 @@ export const trackEvent = async (
   } catch (err) {
     console.error('[analytics] trackEvent error:', err);
   }
+};
+
+/**
+ * Считает window-based retention для заданного дня.
+ * Юзер retained на Dn = у него есть checkin в окне [Dn-1, Dn+1] после регистрации.
+ * @param day - День retention (7 или 30)
+ * @returns { total: число юзеров в выборке, retained: число retained, percent: % }
+ */
+export const calculateWindowRetention = async (
+  day: number
+): Promise<{ total: number; retained: number; percent: number }> => {
+  const now = new Date();
+
+  // Берём юзеров, зарегистрированных минимум day+1 дней назад (чтобы окно [day-1, day+1] уже прошло)
+  const users = await prisma.user.findMany({
+    where: { createdAt: { lte: subDays(now, day + 1) } },
+    select: { id: true, createdAt: true },
+  });
+
+  if (users.length === 0) {
+    return { total: 0, retained: 0, percent: 0 };
+  }
+
+  let retained = 0;
+
+  for (const user of users) {
+    const windowStart = format(addDays(user.createdAt, day - 1), 'yyyy-MM-dd');
+    const windowEnd = format(addDays(user.createdAt, day + 1), 'yyyy-MM-dd');
+
+    const checkin = await prisma.habitLog.findFirst({
+      where: {
+        habit: { userId: user.id },
+        completed: true,
+        date: { gte: windowStart, lte: windowEnd },
+      },
+      select: { id: true },
+    });
+
+    if (checkin) retained++;
+  }
+
+  return {
+    total: users.length,
+    retained,
+    percent: users.length > 0 ? Math.round((retained / users.length) * 100) : 0,
+  };
 };
 
 /**
@@ -245,27 +291,11 @@ export const getAnalytics = async (period: AnalyticsPeriod): Promise<AnalyticsDa
     where: { date: { gte: startDate }, completed: true },
   });
 
-  // D7 Retention: % пользователей созданных 7+ дней назад, у которых lastActiveAt >= createdAt+7d
-  const usersForD7 = await prisma.user.findMany({
-    where: { createdAt: { lte: subDays(now, 7) } },
-    select: { createdAt: true, lastActiveAt: true },
-  });
-  const d7Retained = usersForD7.filter(
-    (u) => u.lastActiveAt && differenceInDays(u.lastActiveAt, u.createdAt) >= 7
-  ).length;
-  const retentionD7 =
-    usersForD7.length > 0 ? Math.round((d7Retained / usersForD7.length) * 100) : 0;
-
-  // D30 Retention
-  const usersForD30 = await prisma.user.findMany({
-    where: { createdAt: { lte: subDays(now, 30) } },
-    select: { createdAt: true, lastActiveAt: true },
-  });
-  const d30Retained = usersForD30.filter(
-    (u) => u.lastActiveAt && differenceInDays(u.lastActiveAt, u.createdAt) >= 30
-  ).length;
-  const retentionD30 =
-    usersForD30.length > 0 ? Math.round((d30Retained / usersForD30.length) * 100) : 0;
+  // Window-based Retention
+  const [d7Result, d30Result] = await Promise.all([
+    calculateWindowRetention(7),
+    calculateWindowRetention(30),
+  ]);
 
   // Топ источников
   const sourceGroups = await prisma.user.groupBy({
@@ -284,8 +314,8 @@ export const getAnalytics = async (period: AnalyticsPeriod): Promise<AnalyticsDa
     dauAvg,
     mau,
     totalCheckins,
-    retentionD7,
-    retentionD30,
+    retentionD7: d7Result.percent,
+    retentionD30: d30Result.percent,
     topSources,
   };
 };
@@ -339,27 +369,11 @@ export const getAnalyticsForRange = async (from: string, to: string): Promise<An
     where: { date: { gte: from, lte: to }, completed: true },
   });
 
-  // D7 Retention (глобальный)
-  const now = new Date();
-  const usersForD7 = await prisma.user.findMany({
-    where: { createdAt: { lte: subDays(now, 7) } },
-    select: { createdAt: true, lastActiveAt: true },
-  });
-  const d7Retained = usersForD7.filter(
-    (u) => u.lastActiveAt && differenceInDays(u.lastActiveAt, u.createdAt) >= 7
-  ).length;
-  const retentionD7 =
-    usersForD7.length > 0 ? Math.round((d7Retained / usersForD7.length) * 100) : 0;
-
-  const usersForD30 = await prisma.user.findMany({
-    where: { createdAt: { lte: subDays(now, 30) } },
-    select: { createdAt: true, lastActiveAt: true },
-  });
-  const d30Retained = usersForD30.filter(
-    (u) => u.lastActiveAt && differenceInDays(u.lastActiveAt, u.createdAt) >= 30
-  ).length;
-  const retentionD30 =
-    usersForD30.length > 0 ? Math.round((d30Retained / usersForD30.length) * 100) : 0;
+  // Window-based Retention (глобальный)
+  const [d7Result, d30Result] = await Promise.all([
+    calculateWindowRetention(7),
+    calculateWindowRetention(30),
+  ]);
 
   // Топ источников (за период)
   const sourceGroups = await prisma.user.groupBy({
@@ -379,8 +393,8 @@ export const getAnalyticsForRange = async (from: string, to: string): Promise<An
     dauAvg,
     mau,
     totalCheckins,
-    retentionD7,
-    retentionD30,
+    retentionD7: d7Result.percent,
+    retentionD30: d30Result.percent,
     topSources,
   };
 };
@@ -397,16 +411,8 @@ export const getDailyReport = async (): Promise<DailyReport> => {
   const snapshot = await prisma.dailySnapshot.findUnique({ where: { date: yesterday } });
   const totalUsers = await prisma.user.count();
 
-  // D7 Retention
-  const usersForD7 = await prisma.user.findMany({
-    where: { createdAt: { lte: subDays(now, 7) } },
-    select: { createdAt: true, lastActiveAt: true },
-  });
-  const d7Retained = usersForD7.filter(
-    (u) => u.lastActiveAt && differenceInDays(u.lastActiveAt, u.createdAt) >= 7
-  ).length;
-  const retentionD7 =
-    usersForD7.length > 0 ? Math.round((d7Retained / usersForD7.length) * 100) : 0;
+  // Window-based D7 Retention
+  const d7Result = await calculateWindowRetention(7);
 
   return {
     date: yesterday,
@@ -414,6 +420,6 @@ export const getDailyReport = async (): Promise<DailyReport> => {
     newUsers: snapshot?.newUsers ?? 0,
     totalUsers,
     totalCheckins: snapshot?.totalCheckins ?? 0,
-    retentionD7,
+    retentionD7: d7Result.percent,
   };
 };
