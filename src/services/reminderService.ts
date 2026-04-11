@@ -19,9 +19,20 @@ const UNDELIVERABLE_ERRORS = [
   'bot can\'t initiate conversation',
 ];
 
+/** Множество userId, для которых уже зафиксирован bot_blocked за текущий запуск cron */
+const blockedTrackedThisRun = new Set<number>();
+
+/**
+ * Сбрасывает дедупликацию bot_blocked (вызывать в начале каждого cron-цикла)
+ */
+export const resetBlockedTracking = (): void => {
+  blockedTrackedThisRun.clear();
+};
+
 /**
  * Проверяет, является ли ошибка Telegram штатной (юзер заблокировал/удалился).
  * Если да — тихо логирует вместо полного стектрейса.
+ * Трекает bot_blocked максимум раз за cron-цикл на юзера.
  * @returns true если ошибка штатная (обработана), false если неизвестная
  */
 const handleDeliveryError = (error: unknown, telegramId: bigint, userId?: number): boolean => {
@@ -30,7 +41,8 @@ const handleDeliveryError = (error: unknown, telegramId: bigint, userId?: number
 
   if (isUndeliverable) {
     console.log(`[reminder] Юзер ${telegramId} недоступен: ${desc}`);
-    if (userId) {
+    if (userId && !blockedTrackedThisRun.has(userId)) {
+      blockedTrackedThisRun.add(userId);
       void trackEvent(userId, 'bot_blocked', { reason: desc });
     }
     return true;
@@ -120,7 +132,9 @@ export const sendMorningReminder = async (
     if (!handled) {
       console.error(`[reminder] Ошибка отправки утреннего для ${telegramId}:`, error);
     }
-    return false;
+    // Если юзер заблокировал — возвращаем true чтобы lastReminderDate обновился
+    // и cron не повторял отправку каждую минуту
+    return handled;
   }
 };
 
@@ -175,7 +189,8 @@ export const sendEveningReminder = async (
     if (!handled) {
       console.error(`[reminder] Ошибка отправки вечернего для ${telegramId}:`, error);
     }
-    return false;
+    // Если юзер заблокировал — возвращаем true чтобы lastReminderDate обновился
+    return handled;
   }
 };
 

@@ -530,6 +530,9 @@ export type StreakBreakData = {
  * Берёт худший исход по юзеру: если хоть одна привычка потеряла стрик без возврата, юзер = не вернулся.
  */
 export const getStreakBreaks = async (): Promise<StreakBreakData> => {
+  // Ограничиваем логи 180 днями — глубже смотреть нет смысла для текущих метрик
+  const date180dAgo = format(subDays(new Date(), 180), 'yyyy-MM-dd');
+
   const habits = await prisma.habit.findMany({
     where: { isActive: true },
     select: {
@@ -539,7 +542,7 @@ export const getStreakBreaks = async (): Promise<StreakBreakData> => {
       frequencyDays: true,
       weekdays: true,
       logs: {
-        where: { completed: true },
+        where: { completed: true, date: { gte: date180dAgo } },
         orderBy: { date: 'asc' as const },
         select: { date: true },
       },
