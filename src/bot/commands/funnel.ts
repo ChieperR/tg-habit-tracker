@@ -52,12 +52,12 @@ export const handleFunnel = async (ctx: BotContext): Promise<void> => {
     }
 
     // Reminder effectiveness
-    message += '\n📬 *Эффективность напоминаний* _(30д, окно 2ч)_\n';
+    message += '\n📬 *Эффективность напоминаний* _(30д)_\n';
     if (reminderEff.length === 0) {
       message += '_нет данных_\n';
     } else {
       for (const r of reminderEff) {
-        const label = r.type === 'morning' ? '🌅 Утро' : r.type === 'evening' ? '🌙 Вечер' : r.type === 'habit' ? '⏰ Персональные' : r.type;
+        const label = r.type === 'morning' ? '🌅 Утро (за день)' : r.type === 'evening' ? '🌙 Вечер (2ч)' : r.type === 'habit' ? '⏰ Персональные (2ч)' : r.type;
         message += `• ${label}: *${r.followedByCheckin}*/${r.sent} (*${r.conversionPercent}%*)\n`;
       }
     }

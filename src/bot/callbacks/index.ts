@@ -248,7 +248,7 @@ const handleHabitToggle = async (
 
   // Трекаем check-in (fire-and-forget)
   if (newStatus) {
-    void trackEvent(user.id, 'checkin', { habitId });
+    void trackEvent(user.id, 'checkin', { habitId, source: source ?? 'habit_list' });
   }
 
   await safeAnswerCallback(ctx, statusText);

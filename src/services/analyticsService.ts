@@ -426,7 +426,8 @@ export type ReminderEffectiveness = {
 
 /**
  * Считает конверсию напоминание → checkin по типам.
- * Считает checkin в течение 24 часов после reminder_sent.
+ * - morning: информационное — считаем "чекинил ли вообще в этот день"
+ * - evening/habit: action-триггер — считаем "чекин в течение 2ч после"
  */
 export const getReminderEffectiveness = async (): Promise<ReminderEffectiveness[]> => {
   const date30dAgo = format(subDays(new Date(), 30), 'yyyy-MM-dd');
@@ -440,15 +441,21 @@ export const getReminderEffectiveness = async (): Promise<ReminderEffectiveness[
 
   if (reminders.length === 0) return [];
 
-  // Батч: все checkin events за тот же период (с 24ч буфером)
+  // Батч: все checkin events за тот же период
   const checkinEvents = await prisma.analyticsEvent.findMany({
     where: { type: 'checkin', createdAt: { gte: since } },
     select: { userId: true, createdAt: true },
   });
 
-  // userId -> отсортированные timestamps checkin'ов
+  // Для morning: userId+date -> boolean (чекинил ли в этот день)
+  const userCheckinDays = new Map<string, true>();
+  // Для evening/habit: userId -> отсортированные timestamps
   const userCheckins = new Map<number, number[]>();
+
   for (const c of checkinEvents) {
+    const day = format(c.createdAt, 'yyyy-MM-dd');
+    userCheckinDays.set(`${c.userId}:${day}`, true);
+
     if (!userCheckins.has(c.userId)) userCheckins.set(c.userId, []);
     userCheckins.get(c.userId)!.push(c.createdAt.getTime());
   }
@@ -466,21 +473,29 @@ export const getReminderEffectiveness = async (): Promise<ReminderEffectiveness[
     const stats = typeStats.get(rType)!;
     stats.sent++;
 
-    // Binary search: был ли checkin в течение 2ч после напоминания
-    const after = reminder.createdAt.getTime();
-    const deadline = after + 2 * 60 * 60 * 1000;
-    const checkins = userCheckins.get(reminder.userId);
-
-    if (checkins) {
-      let lo = 0;
-      let hi = checkins.length;
-      while (lo < hi) {
-        const mid = (lo + hi) >>> 1;
-        if (checkins[mid]! < after) lo = mid + 1;
-        else hi = mid;
-      }
-      if (lo < checkins.length && checkins[lo]! <= deadline) {
+    if (rType === 'morning') {
+      // Morning = информационное: чекинил ли вообще в этот день
+      const day = format(reminder.createdAt, 'yyyy-MM-dd');
+      if (userCheckinDays.has(`${reminder.userId}:${day}`)) {
         stats.converted++;
+      }
+    } else {
+      // Evening/habit = action-триггер: чекин в течение 2ч
+      const after = reminder.createdAt.getTime();
+      const deadline = after + 2 * 60 * 60 * 1000;
+      const checkins = userCheckins.get(reminder.userId);
+
+      if (checkins) {
+        let lo = 0;
+        let hi = checkins.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1;
+          if (checkins[mid]! < after) lo = mid + 1;
+          else hi = mid;
+        }
+        if (lo < checkins.length && checkins[lo]! <= deadline) {
+          stats.converted++;
+        }
       }
     }
   }
