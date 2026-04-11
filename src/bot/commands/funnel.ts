@@ -52,7 +52,7 @@ export const handleFunnel = async (ctx: BotContext): Promise<void> => {
     }
 
     // Reminder effectiveness
-    message += '\n📬 *Эффективность напоминаний* _(30д)_\n';
+    message += '\n📬 *Эффективность напоминаний* _(30д, окно 2ч)_\n';
     if (reminderEff.length === 0) {
       message += '_нет данных_\n';
     } else {

@@ -234,7 +234,7 @@ export const getActivationFunnel = async (): Promise<ActivationFunnelResult> => 
 
   // Шаг 4: checkin на 2й день после регистрации (были активны на следующий день)
   const allUsers = await prisma.user.findMany({
-    where: { createdAt: { lte: subDays(now, 2) } },
+    where: { createdAt: { lte: subDays(now, 4) } },
     select: { id: true, createdAt: true },
   });
 
@@ -264,8 +264,15 @@ export const getActivationFunnel = async (): Promise<ActivationFunnelResult> => 
     const dates = funnelUserDates.get(user.id);
     if (!dates) continue;
 
-    const d2Date = format(addDays(user.createdAt, 1), 'yyyy-MM-dd');
-    if (dates.has(d2Date)) d2Retained++;
+    // D2: checkin в окне [1, 3] дня после регистрации (покрывает interval/weekdays)
+    const d2Start = format(addDays(user.createdAt, 1), 'yyyy-MM-dd');
+    const d2End = format(addDays(user.createdAt, 3), 'yyyy-MM-dd');
+    for (const d of dates) {
+      if (d >= d2Start && d <= d2End) {
+        d2Retained++;
+        break;
+      }
+    }
 
     // Шаг 5: checkin на 7й день (окно [6, 8])
     if (differenceInDays(now, user.createdAt) >= 8) {
@@ -297,7 +304,7 @@ export const getActivationFunnel = async (): Promise<ActivationFunnelResult> => 
       { name: '/start', count: totalUsers, percent: 100 },
       { name: 'Создал привычку', count: usersWithHabits, percent: pct(usersWithHabits) },
       { name: 'Первый check-in', count: uniqueCheckinUsers, percent: pct(uniqueCheckinUsers) },
-      { name: 'Check-in на 2й день', count: d2Retained, percent: pct(d2Retained) },
+      { name: 'Check-in на D2-3', count: d2Retained, percent: pct(d2Retained) },
       { name: `Check-in на D7 (из ${d7EligibleCount})`, count: d7Retained, percent: d7EligibleCount > 0 ? Math.round((d7Retained / d7EligibleCount) * 100) : 0 },
       { name: 'Активен сейчас', count: activeNowCount, percent: pct(activeNowCount) },
     ],
@@ -459,9 +466,9 @@ export const getReminderEffectiveness = async (): Promise<ReminderEffectiveness[
     const stats = typeStats.get(rType)!;
     stats.sent++;
 
-    // Binary search: был ли checkin в течение 24ч после напоминания
+    // Binary search: был ли checkin в течение 2ч после напоминания
     const after = reminder.createdAt.getTime();
-    const deadline = after + 24 * 60 * 60 * 1000;
+    const deadline = after + 2 * 60 * 60 * 1000;
     const checkins = userCheckins.get(reminder.userId);
 
     if (checkins) {
