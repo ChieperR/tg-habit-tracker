@@ -24,12 +24,15 @@ const UNDELIVERABLE_ERRORS = [
  * Если да — тихо логирует вместо полного стектрейса.
  * @returns true если ошибка штатная (обработана), false если неизвестная
  */
-const handleDeliveryError = (error: unknown, telegramId: bigint): boolean => {
+const handleDeliveryError = (error: unknown, telegramId: bigint, userId?: number): boolean => {
   const desc = (error as { description?: string })?.description ?? '';
   const isUndeliverable = UNDELIVERABLE_ERRORS.some((e) => desc.includes(e));
 
   if (isUndeliverable) {
     console.log(`[reminder] Юзер ${telegramId} недоступен: ${desc}`);
+    if (userId) {
+      void trackEvent(userId, 'bot_blocked', { reason: desc });
+    }
     return true;
   }
 
@@ -113,7 +116,7 @@ export const sendMorningReminder = async (
     });
     return true;
   } catch (error) {
-    const handled = handleDeliveryError(error, telegramId);
+    const handled = handleDeliveryError(error, telegramId, userId);
     if (!handled) {
       console.error(`[reminder] Ошибка отправки утреннего для ${telegramId}:`, error);
     }
@@ -168,7 +171,7 @@ export const sendEveningReminder = async (
     });
     return true;
   } catch (error) {
-    const handled = handleDeliveryError(error, telegramId);
+    const handled = handleDeliveryError(error, telegramId, userId);
     if (!handled) {
       console.error(`[reminder] Ошибка отправки вечернего для ${telegramId}:`, error);
     }
@@ -309,7 +312,7 @@ export const checkAndSendHabitReminders = async (
         });
         void trackEvent(habit.userId, 'reminder_sent', { type: 'habit', habitId: habit.id });
       } catch (error) {
-        const handled = handleDeliveryError(error, habit.user.telegramId);
+        const handled = handleDeliveryError(error, habit.user.telegramId, habit.userId);
         if (!handled) {
           console.error(`[reminder] Ошибка напоминания привычки ${habit.id} для ${habit.user.telegramId}:`, error);
         }

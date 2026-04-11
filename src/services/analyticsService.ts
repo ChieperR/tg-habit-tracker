@@ -63,7 +63,7 @@ export type DailyReport = {
  * @param metadata - Дополнительные данные
  */
 /** Типы аналитических событий */
-export type AnalyticsEventType = 'start' | 'checkin' | 'habit_create' | 'habit_delete' | 'reminder_sent';
+export type AnalyticsEventType = 'start' | 'start_returning' | 'checkin' | 'habit_create' | 'habit_delete' | 'reminder_sent' | 'bot_blocked' | 'view_habits' | 'view_stats';
 
 export const trackEvent = async (
   userId: number,
