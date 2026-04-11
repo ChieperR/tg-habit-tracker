@@ -64,11 +64,11 @@ export const handleFunnel = async (ctx: BotContext): Promise<void> => {
     // Streak breaks
     message += '\n🔥 *Потеря стриков*\n';
     const retPct = (ret: number, total: number) => total > 0 ? Math.round((ret / total) * 100) : 0;
-    message += `• Стрик 3+д потерян: *${streakBreaks.broke3plus}* раз`;
+    message += `• Стрик 3+д потеряли: *${streakBreaks.broke3plus}* чел`;
     message += streakBreaks.broke3plus > 0 ? ` (вернулись: *${retPct(streakBreaks.returned3plus, streakBreaks.broke3plus)}%*)\n` : '\n';
-    message += `• Стрик 7+д потерян: *${streakBreaks.broke7plus}* раз`;
+    message += `• Стрик 7+д потеряли: *${streakBreaks.broke7plus}* чел`;
     message += streakBreaks.broke7plus > 0 ? ` (вернулись: *${retPct(streakBreaks.returned7plus, streakBreaks.broke7plus)}%*)\n` : '\n';
-    message += `• Стрик 14+д потерян: *${streakBreaks.broke14plus}* раз`;
+    message += `• Стрик 14+д потеряли: *${streakBreaks.broke14plus}* чел`;
     message += streakBreaks.broke14plus > 0 ? ` (вернулись: *${retPct(streakBreaks.returned14plus, streakBreaks.broke14plus)}%*)\n` : '\n';
 
     // Telegram лимит — 4096 символов. Разбиваем если нужно

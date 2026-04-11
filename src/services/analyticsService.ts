@@ -486,25 +486,26 @@ export const getReminderEffectiveness = async (): Promise<ReminderEffectiveness[
   }));
 };
 
-/** Данные о потере стриков */
+/** Данные о потере стриков (уникальные юзеры) */
 export type StreakBreakData = {
-  /** Потеряли стрик 3+ дней */
+  /** Уникальных юзеров, потерявших стрик 3+ дней */
   broke3plus: number;
   /** Из них вернулись (checkin в течение 7 дней после потери) */
   returned3plus: number;
-  /** Потеряли стрик 7+ дней */
+  /** Уникальных юзеров, потерявших стрик 7+ дней */
   broke7plus: number;
   /** Из них вернулись */
   returned7plus: number;
-  /** Потеряли стрик 14+ дней */
+  /** Уникальных юзеров, потерявших стрик 14+ дней */
   broke14plus: number;
   /** Из них вернулись */
   returned14plus: number;
 };
 
 /**
- * Анализ потери стриков: сколько юзеров теряли стрики и возвращались ли.
- * Стрик считается потерянным когда юзер пропускает день после N+ дней подряд.
+ * Анализ потери стриков: сколько уникальных юзеров теряли стрики и возвращались ли.
+ * Считает по юзерам, а не по привычкам — если юзер потерял стрик в 3 привычках, это 1 юзер.
+ * Берёт худший исход по юзеру: если хоть одна привычка потеряла стрик без возврата, юзер = не вернулся.
  */
 export const getStreakBreaks = async (): Promise<StreakBreakData> => {
   const habits = await prisma.habit.findMany({
@@ -523,9 +524,23 @@ export const getStreakBreaks = async (): Promise<StreakBreakData> => {
     },
   });
 
-  let broke3plus = 0, returned3plus = 0;
-  let broke7plus = 0, returned7plus = 0;
-  let broke14plus = 0, returned14plus = 0;
+  // Per-user tracking: userId -> { broke: boolean, returned: boolean } для каждого bucket
+  const userBreaks = new Map<number, {
+    broke3: boolean; returned3: boolean;
+    broke7: boolean; returned7: boolean;
+    broke14: boolean; returned14: boolean;
+  }>();
+
+  const getOrCreate = (userId: number) => {
+    if (!userBreaks.has(userId)) {
+      userBreaks.set(userId, {
+        broke3: false, returned3: true,
+        broke7: false, returned7: true,
+        broke14: false, returned14: true,
+      });
+    }
+    return userBreaks.get(userId)!;
+  };
 
   for (const habit of habits) {
     if (habit.logs.length < 2) continue;
@@ -533,26 +548,24 @@ export const getStreakBreaks = async (): Promise<StreakBreakData> => {
     // Максимально допустимый gap для данного типа привычки (всё что больше = break)
     let maxNormalGap: number;
     if (habit.frequencyType === 'weekdays' && habit.weekdays) {
-      // Вычисляем макс. gap между соседними днями недели
-      // Пример: "1,5" (Пн, Пт) → gaps [4, 3] → max 4; "1" (только Пн) → gap 7
       const days = habit.weekdays.split(',').map(Number).sort((a, b) => a - b);
       let maxGap = 0;
       for (let i = 1; i < days.length; i++) {
         maxGap = Math.max(maxGap, days[i]! - days[i - 1]!);
       }
-      // Wrap-around gap: от последнего дня до первого через конец недели
       if (days.length > 0) {
         maxGap = Math.max(maxGap, 7 - days[days.length - 1]! + days[0]!);
       }
-      maxNormalGap = Math.max(maxGap, 1) + 1; // +1 день запаса
+      maxNormalGap = Math.max(maxGap, 1) + 1;
     } else if (habit.frequencyType === 'interval') {
       maxNormalGap = habit.frequencyDays + 1;
     } else {
-      maxNormalGap = 1; // daily: gap > 1 = break
+      maxNormalGap = 1;
     }
 
     const dates = habit.logs.map((l) => l.date);
     let currentStreak = 1;
+    const entry = getOrCreate(habit.userId);
 
     for (let i = 1; i < dates.length; i++) {
       const prev = new Date(dates[i - 1]!);
@@ -562,35 +575,44 @@ export const getStreakBreaks = async (): Promise<StreakBreakData> => {
       if (gap <= maxNormalGap) {
         currentStreak++;
       } else {
-        // Стрик прервался
         const returnedWithin7d = gap <= 7;
 
         if (currentStreak >= 3) {
-          broke3plus++;
-          if (returnedWithin7d) returned3plus++;
+          entry.broke3 = true;
+          if (!returnedWithin7d) entry.returned3 = false;
         }
         if (currentStreak >= 7) {
-          broke7plus++;
-          if (returnedWithin7d) returned7plus++;
+          entry.broke7 = true;
+          if (!returnedWithin7d) entry.returned7 = false;
         }
         if (currentStreak >= 14) {
-          broke14plus++;
-          if (returnedWithin7d) returned14plus++;
+          entry.broke14 = true;
+          if (!returnedWithin7d) entry.returned14 = false;
         }
         currentStreak = 1;
       }
     }
 
-    // Последний стрик — если прервался (нет checkin за maxNormalGap дней)
+    // Последний стрик — если прервался
     const lastDate = dates[dates.length - 1]!;
     const daysSinceLast = differenceInDays(new Date(), new Date(lastDate));
 
     if (daysSinceLast > maxNormalGap) {
-      if (currentStreak >= 3) broke3plus++;
-      if (currentStreak >= 7) broke7plus++;
-      if (currentStreak >= 14) broke14plus++;
-      // Не вернулся — последний стрик, юзер ушёл
+      if (currentStreak >= 3) { entry.broke3 = true; entry.returned3 = false; }
+      if (currentStreak >= 7) { entry.broke7 = true; entry.returned7 = false; }
+      if (currentStreak >= 14) { entry.broke14 = true; entry.returned14 = false; }
     }
+  }
+
+  // Считаем уникальных юзеров
+  let broke3plus = 0, returned3plus = 0;
+  let broke7plus = 0, returned7plus = 0;
+  let broke14plus = 0, returned14plus = 0;
+
+  for (const entry of userBreaks.values()) {
+    if (entry.broke3) { broke3plus++; if (entry.returned3) returned3plus++; }
+    if (entry.broke7) { broke7plus++; if (entry.returned7) returned7plus++; }
+    if (entry.broke14) { broke14plus++; if (entry.returned14) returned14plus++; }
   }
 
   return { broke3plus, returned3plus, broke7plus, returned7plus, broke14plus, returned14plus };
