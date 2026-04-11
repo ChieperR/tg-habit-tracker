@@ -202,6 +202,201 @@ export const getUserSegments = async (): Promise<SegmentationResult> => {
   return result;
 };
 
+/** Шаг воронки активации */
+export type FunnelStep = {
+  name: string;
+  count: number;
+  percent: number;
+};
+
+/** Результат воронки активации */
+export type ActivationFunnelResult = {
+  steps: FunnelStep[];
+};
+
+/**
+ * Строит воронку активации: на каком шаге отваливаются юзеры.
+ * /start → создал привычку → первый checkin → checkin на 2й день → checkin на 7й день → активен сейчас
+ */
+export const getActivationFunnel = async (): Promise<ActivationFunnelResult> => {
+  const now = new Date();
+  const date7dAgo = format(subDays(now, 7), 'yyyy-MM-dd');
+
+  // Шаг 1: все юзеры (/start)
+  const totalUsers = await prisma.user.count();
+
+  // Шаг 2: создали хотя бы 1 привычку
+  const usersWithHabits = await prisma.user.count({
+    where: { habits: { some: {} } },
+  });
+
+  // Шаг 3: сделали хотя бы 1 checkin
+  const usersWithCheckins = await prisma.habitLog.findMany({
+    where: { completed: true },
+    select: { habit: { select: { userId: true } } },
+    distinct: ['habitId'],
+  });
+  const uniqueCheckinUsers = new Set(usersWithCheckins.map((l) => l.habit.userId)).size;
+
+  // Шаг 4: checkin на 2й день после регистрации (были активны на следующий день)
+  const allUsers = await prisma.user.findMany({
+    where: { createdAt: { lte: subDays(now, 2) } },
+    select: { id: true, createdAt: true },
+  });
+
+  let d2Retained = 0;
+  let d7Retained = 0;
+
+  for (const user of allUsers) {
+    const d2Date = format(addDays(user.createdAt, 1), 'yyyy-MM-dd');
+    const d2Checkin = await prisma.habitLog.findFirst({
+      where: { habit: { userId: user.id }, completed: true, date: d2Date },
+      select: { id: true },
+    });
+    if (d2Checkin) d2Retained++;
+
+    // Шаг 5: checkin на 7й день (окно [6, 8])
+    if (differenceInDays(now, user.createdAt) >= 8) {
+      const d7Start = format(addDays(user.createdAt, 6), 'yyyy-MM-dd');
+      const d7End = format(addDays(user.createdAt, 8), 'yyyy-MM-dd');
+      const d7Checkin = await prisma.habitLog.findFirst({
+        where: { habit: { userId: user.id }, completed: true, date: { gte: d7Start, lte: d7End } },
+        select: { id: true },
+      });
+      if (d7Checkin) d7Retained++;
+    }
+  }
+
+  // Шаг 6: активен сейчас (checkin за последние 7 дней)
+  const activeNow = await prisma.habitLog.findMany({
+    where: { completed: true, date: { gte: date7dAgo } },
+    select: { habit: { select: { userId: true } } },
+    distinct: ['habitId'],
+  });
+  const activeNowCount = new Set(activeNow.map((l) => l.habit.userId)).size;
+
+  const pct = (n: number) => totalUsers > 0 ? Math.round((n / totalUsers) * 100) : 0;
+
+  const d7EligibleCount = allUsers.filter((u) => differenceInDays(now, u.createdAt) >= 8).length;
+
+  return {
+    steps: [
+      { name: '/start', count: totalUsers, percent: 100 },
+      { name: 'Создал привычку', count: usersWithHabits, percent: pct(usersWithHabits) },
+      { name: 'Первый check-in', count: uniqueCheckinUsers, percent: pct(uniqueCheckinUsers) },
+      { name: 'Check-in на 2й день', count: d2Retained, percent: pct(d2Retained) },
+      { name: `Check-in на D7 (из ${d7EligibleCount})`, count: d7Retained, percent: d7EligibleCount > 0 ? Math.round((d7Retained / d7EligibleCount) * 100) : 0 },
+      { name: 'Активен сейчас', count: activeNowCount, percent: pct(activeNowCount) },
+    ],
+  };
+};
+
+/** Метрики здоровья привычек */
+export type HabitHealthMetrics = {
+  totalActive: number;
+  alive: number;
+  dead: number;
+  stillborn: number;
+  totalDeleted: number;
+  survivalBuckets: {
+    diedBefore3d: number;
+    diedBefore7d: number;
+    survived7d: number;
+    survived30d: number;
+  };
+  byType: {
+    type: string;
+    total: number;
+    alive: number;
+    alivePercent: number;
+  }[];
+};
+
+/**
+ * Метрики по привычкам: живые/мёртвые/мертворождённые, survival buckets, по типам.
+ */
+export const getHabitHealthMetrics = async (): Promise<HabitHealthMetrics> => {
+  const date7dAgo = format(subDays(new Date(), 7), 'yyyy-MM-dd');
+  const date30dAgo = format(subDays(new Date(), 30), 'yyyy-MM-dd');
+
+  const habits = await prisma.habit.findMany({
+    where: { isActive: true },
+    select: {
+      id: true,
+      frequencyType: true,
+      createdAt: true,
+      logs: {
+        where: { completed: true },
+        orderBy: { date: 'desc' as const },
+        select: { date: true },
+      },
+    },
+  });
+
+  const totalDeleted = await prisma.habit.count({ where: { isActive: false } });
+
+  let alive = 0;
+  let dead = 0;
+  let stillborn = 0;
+  let diedBefore3d = 0;
+  let diedBefore7d = 0;
+  let survived7d = 0;
+  let survived30d = 0;
+
+  const typeStats = new Map<string, { total: number; alive: number }>();
+
+  for (const habit of habits) {
+    const type = habit.frequencyType;
+    if (!typeStats.has(type)) typeStats.set(type, { total: 0, alive: 0 });
+    const ts = typeStats.get(type)!;
+    ts.total++;
+
+    if (habit.logs.length === 0) {
+      stillborn++;
+      continue;
+    }
+
+    const lastCheckin = habit.logs[0]!.date;
+    const firstCheckin = habit.logs[habit.logs.length - 1]!.date;
+    const isAlive = lastCheckin >= date7dAgo;
+
+    if (isAlive) {
+      alive++;
+      ts.alive++;
+    } else {
+      dead++;
+    }
+
+    // Survival: сколько дней привычка прожила (от первого до последнего checkin)
+    const lifespanDays = differenceInDays(new Date(lastCheckin), new Date(firstCheckin));
+
+    if (!isAlive) {
+      if (lifespanDays < 3) diedBefore3d++;
+      else if (lifespanDays < 7) diedBefore7d++;
+    }
+
+    if (lifespanDays >= 7) survived7d++;
+    if (lifespanDays >= 30) survived30d++;
+  }
+
+  const byType = Array.from(typeStats.entries()).map(([type, stats]) => ({
+    type,
+    total: stats.total,
+    alive: stats.alive,
+    alivePercent: stats.total > 0 ? Math.round((stats.alive / stats.total) * 100) : 0,
+  }));
+
+  return {
+    totalActive: habits.length,
+    alive,
+    dead,
+    stillborn,
+    totalDeleted,
+    survivalBuckets: { diedBefore3d, diedBefore7d, survived7d, survived30d },
+    byType,
+  };
+};
+
 /**
  * Считает window-based retention для заданного дня.
  * Юзер retained на Dn = у него есть checkin в окне [Dn-1, Dn+1] после регистрации.
