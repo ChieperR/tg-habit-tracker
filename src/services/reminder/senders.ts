@@ -4,33 +4,7 @@ import { getTodayHabits, getUserHabitsWithTodayStatus } from '../habitService.js
 import { createMainMenuKeyboard, createEveningChecklistKeyboard } from '../../bot/keyboards/index.js';
 import { getChangelogBanner } from '../../changelog.js';
 import { handleDeliveryError } from './delivery.js';
-
-/** Названия дней недели */
-const WEEKDAY_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-
-/**
- * Форматирует расписание привычки для отображения
- */
-const formatHabitSchedule = (habit: HabitWithTodayStatus): string => {
-  switch (habit.frequencyType) {
-    case 'daily':
-      return 'ежедневно';
-    case 'interval':
-      return `раз в ${habit.frequencyDays} дн.`;
-    case 'weekdays': {
-      if (!habit.weekdays) return '';
-      const days = habit.weekdays.split(',').map(Number);
-      const sorted = [...days].sort((a, b) => {
-        const aIdx = a === 0 ? 7 : a;
-        const bIdx = b === 0 ? 7 : b;
-        return aIdx - bIdx;
-      });
-      return sorted.map(d => WEEKDAY_NAMES[d]).join(', ');
-    }
-    default:
-      return '';
-  }
-};
+import { formatScheduleText } from '../../utils/format.js';
 
 /**
  * Отправляет утреннее напоминание пользователю
@@ -53,7 +27,7 @@ export const sendMorningReminder = async (
   message += 'Вот твои привычки на сегодня:\n\n';
 
   for (const habit of todayHabits) {
-    const scheduleText = formatHabitSchedule(habit);
+    const scheduleText = formatScheduleText(habit);
     message += `• ${habit.emoji} ${habit.name} _(${scheduleText})_\n`;
   }
 
