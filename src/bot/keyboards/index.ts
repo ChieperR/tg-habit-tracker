@@ -282,11 +282,17 @@ export const createHabitDetailsKeyboard = (params: HabitDetailsKeyboardParams): 
  * @param habitId - ID созданной привычки
  * @returns Inline клавиатура
  */
-export const createHabitCreatedKeyboard = (habitId: number): InlineKeyboard => {
-  return new InlineKeyboard()
-    .text('⏰ Добавить напоминание', serializeCallback({ type: 'habit_reminder_set', habitId }))
-    .row()
-    .text('📝 К привычкам', serializeCallback({ type: 'habits_list' }));
+export const createHabitCreatedKeyboard = (habitId: number, opts?: { isDueToday: boolean; emoji: string; completed?: boolean }): InlineKeyboard => {
+  const kb = new InlineKeyboard();
+  if (opts?.isDueToday) {
+    const status = opts.completed ? '✅' : '⬜';
+    kb.text(`${status} ${opts.emoji}`, serializeCallback({ type: 'habit_toggle', habitId, source: 'habit_created' }));
+    kb.row();
+  }
+  kb.text('⏰ Добавить напоминание', serializeCallback({ type: 'habit_reminder_set', habitId }));
+  kb.row();
+  kb.text('📝 К привычкам', serializeCallback({ type: 'habits_list' }));
+  return kb;
 };
 
 /**

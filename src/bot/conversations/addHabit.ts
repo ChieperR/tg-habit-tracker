@@ -4,6 +4,8 @@ import { createHabit } from '../../services/habitService.js';
 import { trackEvent } from '../../services/analyticsService.js';
 import { createMainMenuKeyboard, createFrequencyTypeKeyboard, createEmojiKeyboard, createWeekdaysKeyboard, createHabitCreatedKeyboard } from '../keyboards/index.js';
 import { serializeCallback } from '../../utils/callback.js';
+import { isHabitDueToday, getTodayDate, getNextDueDay } from '../../utils/date.js';
+import { formatScheduleText } from '../../utils/format.js';
 
 /**
  * Диалог добавления новой привычки
@@ -12,31 +14,6 @@ import { serializeCallback } from '../../utils/callback.js';
 
 /** Названия дней недели для отображения */
 const WEEKDAY_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-
-/**
- * Форматирует расписание для отображения
- */
-const formatSchedule = (
-  frequencyType: FrequencyType,
-  frequencyDays?: number,
-  weekdays?: number[]
-): string => {
-  switch (frequencyType) {
-    case 'daily':
-      return 'ежедневно';
-    case 'interval':
-      return `раз в ${frequencyDays} дн.`;
-    case 'weekdays':
-      if (!weekdays || weekdays.length === 0) return 'не выбрано';
-      // Сортируем дни начиная с понедельника
-      const sorted = [...weekdays].sort((a, b) => {
-        const aIdx = a === 0 ? 7 : a;
-        const bIdx = b === 0 ? 7 : b;
-        return aIdx - bIdx;
-      });
-      return sorted.map(d => WEEKDAY_NAMES[d]).join(', ');
-  }
-};
 
 /**
  * Проверяет, является ли строка эмодзи
@@ -248,13 +225,29 @@ export const addHabitConversation = async (
     await trackEvent(user.id, 'habit_create', { habitId: newHabit.id });
   });
 
-  const scheduleText = formatSchedule(frequencyType, frequencyDays, weekdays?.split(',').map(Number));
+  const scheduleText = formatScheduleText({ frequencyType, frequencyDays, weekdays: weekdays ?? null });
+  const timezoneOffset = user.timezoneOffset ?? 180;
+  const todayDate = await conversation.external(() => getTodayDate(timezoneOffset));
 
-  await ctx.reply(
-    `✅ *Привычка добавлена!*\n\n${emoji} ${habitName}\n📅 ${scheduleText}\n\nТеперь она появится в твоём списке.`,
-    {
-      parse_mode: 'Markdown',
-      reply_markup: createHabitCreatedKeyboard(newHabit.id),
-    }
-  );
+  const dueToday = isHabitDueToday({
+    frequencyType,
+    frequencyDays,
+    weekdays: weekdays ?? null,
+    lastCompletedDate: null,
+    todayDate,
+  });
+
+  let message = `✅ *Привычка добавлена!*\n\n${emoji} ${habitName}\n📅 ${scheduleText}`;
+
+  if (dueToday) {
+    message += '\n\nСегодня как раз нужно выполнить — отметь первый раз! ⬇️';
+  } else {
+    const nextDay = getNextDueDay(weekdays!, todayDate);
+    message += `\n\nБлижайший день: *${nextDay}*`;
+  }
+
+  await ctx.reply(message, {
+    parse_mode: 'Markdown',
+    reply_markup: createHabitCreatedKeyboard(newHabit.id, dueToday ? { isDueToday: true, emoji } : undefined),
+  });
 };

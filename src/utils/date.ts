@@ -130,6 +130,28 @@ export const isHabitDueToday = (params: HabitDueParams): boolean => {
   }
 };
 
+/** Названия дней недели для отображения */
+const WEEKDAY_DISPLAY = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
+
+/**
+ * Возвращает название ближайшего дня для weekdays-привычки.
+ * Только для weekdays — daily и interval всегда due today при создании.
+ */
+export const getNextDueDay = (weekdays: string, todayDate: string): string => {
+  const today = parse(todayDate, 'yyyy-MM-dd', new Date());
+  const todayDow = getDay(today);
+  const allowedDays = weekdays.split(',').map(Number);
+
+  for (let offset = 1; offset <= 7; offset++) {
+    const dow = (todayDow + offset) % 7;
+    if (allowedDays.includes(dow)) {
+      return WEEKDAY_DISPLAY[dow]!;
+    }
+  }
+
+  return WEEKDAY_DISPLAY[(todayDow + 1) % 7]!; // fallback
+};
+
 /**
  * Получает список дат за последние N дней
  * @param days - Количество дней

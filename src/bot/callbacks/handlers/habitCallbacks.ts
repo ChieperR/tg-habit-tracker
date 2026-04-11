@@ -6,30 +6,8 @@ import { findOrCreateUser } from '../../../services/userService.js';
 import { toggleHabitCompletion, deleteHabit, getHabitById, getUserHabitsWithTodayStatus, updateHabitReminder } from '../../../services/habitService.js';
 import { trackEvent } from '../../../services/analyticsService.js';
 import { showHabitsList } from '../../commands/habits.js';
-import { createEveningChecklistKeyboard, createDeleteConfirmKeyboard, createHabitDetailsKeyboard } from '../../keyboards/index.js';
-
-/** Названия дней недели */
-const WEEKDAY_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-
-/**
- * Форматирует расписание привычки
- */
-const formatScheduleText = (habit: { frequencyType: string; frequencyDays: number; weekdays: string | null }): string => {
-  switch (habit.frequencyType) {
-    case 'daily':
-      return 'ежедневно';
-    case 'interval':
-      return `раз в ${habit.frequencyDays} дн.`;
-    case 'weekdays': {
-      if (!habit.weekdays) return '';
-      const days = habit.weekdays.split(',').map(Number);
-      const sorted = [...days].sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b));
-      return sorted.map((d) => WEEKDAY_NAMES[d]).join(', ');
-    }
-    default:
-      return '';
-  }
-};
+import { createEveningChecklistKeyboard, createDeleteConfirmKeyboard, createHabitDetailsKeyboard, createHabitCreatedKeyboard } from '../../keyboards/index.js';
+import { formatScheduleText } from '../../../utils/format.js';
 
 /**
  * Переключает статус выполнения привычки
@@ -37,7 +15,7 @@ const formatScheduleText = (habit: { frequencyType: string; frequencyDays: numbe
 export const handleHabitToggle = async (
   ctx: BotContext,
   habitId: number,
-  source?: 'evening_reminder' | 'habit_reminder',
+  source?: 'evening_reminder' | 'habit_reminder' | 'habit_created',
   date?: string
 ): Promise<void> => {
   const telegramId = ctx.from?.id;
@@ -75,6 +53,18 @@ export const handleHabitToggle = async (
     await safeEditMessage(ctx, doneText, {
       parse_mode: 'Markdown',
       reply_markup: toggleKeyboard,
+    });
+    return;
+  }
+
+  if (source === 'habit_created') {
+    const scheduleText = formatScheduleText(habit);
+    const footerText = newStatus ? 'Отличное начало! 🔥' : 'Сегодня как раз нужно выполнить — отметь первый раз! ⬇️';
+    const message = `✅ *Привычка добавлена!*\n\n${habit.emoji} ${habit.name}\n📅 ${scheduleText}\n\n${footerText}`;
+
+    await safeEditMessage(ctx, message, {
+      parse_mode: 'Markdown',
+      reply_markup: createHabitCreatedKeyboard(habitId, { isDueToday: true, emoji: habit.emoji, completed: newStatus }),
     });
     return;
   }
