@@ -514,6 +514,7 @@ export const getStreakBreaks = async (): Promise<StreakBreakData> => {
       userId: true,
       frequencyType: true,
       frequencyDays: true,
+      weekdays: true,
       logs: {
         where: { completed: true },
         orderBy: { date: 'asc' as const },
@@ -530,11 +531,25 @@ export const getStreakBreaks = async (): Promise<StreakBreakData> => {
     if (habit.logs.length < 2) continue;
 
     // Максимально допустимый gap для данного типа привычки (всё что больше = break)
-    const maxNormalGap = habit.frequencyType === 'weekdays'
-      ? 3   // Пт→Пн = gap 3, это норма для weekdays
-      : habit.frequencyType === 'interval'
-        ? habit.frequencyDays + 1  // interval: допускаем frequencyDays + 1 день запаса
-        : 1;  // daily: gap > 1 = break
+    let maxNormalGap: number;
+    if (habit.frequencyType === 'weekdays' && habit.weekdays) {
+      // Вычисляем макс. gap между соседними днями недели
+      // Пример: "1,5" (Пн, Пт) → gaps [4, 3] → max 4; "1" (только Пн) → gap 7
+      const days = habit.weekdays.split(',').map(Number).sort((a, b) => a - b);
+      let maxGap = 0;
+      for (let i = 1; i < days.length; i++) {
+        maxGap = Math.max(maxGap, days[i]! - days[i - 1]!);
+      }
+      // Wrap-around gap: от последнего дня до первого через конец недели
+      if (days.length > 0) {
+        maxGap = Math.max(maxGap, 7 - days[days.length - 1]! + days[0]!);
+      }
+      maxNormalGap = Math.max(maxGap, 1) + 1; // +1 день запаса
+    } else if (habit.frequencyType === 'interval') {
+      maxNormalGap = habit.frequencyDays + 1;
+    } else {
+      maxNormalGap = 1; // daily: gap > 1 = break
+    }
 
     const dates = habit.logs.map((l) => l.date);
     let currentStreak = 1;
