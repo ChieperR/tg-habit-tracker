@@ -618,6 +618,34 @@ export const getStreakBreaks = async (): Promise<StreakBreakData> => {
   return { broke3plus, returned3plus, broke7plus, returned7plus, broke14plus, returned14plus };
 };
 
+/** Счётчик заблокировавших бота */
+export type BotBlockedCount = {
+  total: number;
+  last30d: number;
+  last7d: number;
+};
+
+/**
+ * Считает уникальных юзеров, заблокировавших бота.
+ * Данные копятся с момента деплоя bot_blocked трекинга.
+ */
+export const getBotBlockedCount = async (): Promise<BotBlockedCount> => {
+  const now = new Date();
+  const date30dAgo = new Date(format(subDays(now, 30), 'yyyy-MM-dd') + 'T00:00:00.000Z');
+  const date7dAgo = new Date(format(subDays(now, 7), 'yyyy-MM-dd') + 'T00:00:00.000Z');
+
+  const allBlocked = await prisma.analyticsEvent.findMany({
+    where: { type: 'bot_blocked' },
+    select: { userId: true, createdAt: true },
+  });
+
+  const total = new Set(allBlocked.map((e) => e.userId)).size;
+  const last30d = new Set(allBlocked.filter((e) => e.createdAt >= date30dAgo).map((e) => e.userId)).size;
+  const last7d = new Set(allBlocked.filter((e) => e.createdAt >= date7dAgo).map((e) => e.userId)).size;
+
+  return { total, last30d, last7d };
+};
+
 /**
  * Считает window-based retention для заданного дня.
  * Юзер retained на Dn = у него есть checkin в окне [Dn-1, Dn+1] после регистрации.

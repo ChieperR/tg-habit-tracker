@@ -1,6 +1,6 @@
 import { BotContext } from '../../types/index.js';
 import { ADMIN_TELEGRAM_ID } from '../../config.js';
-import { getActivationFunnel, getHabitHealthMetrics, getReminderEffectiveness, getStreakBreaks } from '../../services/analyticsService.js';
+import { getActivationFunnel, getHabitHealthMetrics, getReminderEffectiveness, getStreakBreaks, getBotBlockedCount } from '../../services/analyticsService.js';
 
 /**
  * Обработчик команды /funnel — воронка активации + метрики привычек (только для администратора)
@@ -13,11 +13,12 @@ export const handleFunnel = async (ctx: BotContext): Promise<void> => {
   }
 
   try {
-    const [funnel, habitHealth, reminderEff, streakBreaks] = await Promise.all([
+    const [funnel, habitHealth, reminderEff, streakBreaks, botBlocked] = await Promise.all([
       getActivationFunnel(),
       getHabitHealthMetrics(),
       getReminderEffectiveness(),
       getStreakBreaks(),
+      getBotBlockedCount(),
     ]);
 
     // Воронка
@@ -70,6 +71,12 @@ export const handleFunnel = async (ctx: BotContext): Promise<void> => {
     message += streakBreaks.broke7plus > 0 ? ` (вернулись: *${retPct(streakBreaks.returned7plus, streakBreaks.broke7plus)}%*)\n` : '\n';
     message += `• Стрик 14+д потеряли: *${streakBreaks.broke14plus}* чел`;
     message += streakBreaks.broke14plus > 0 ? ` (вернулись: *${retPct(streakBreaks.returned14plus, streakBreaks.broke14plus)}%*)\n` : '\n';
+
+    // Bot blocked
+    message += '\n🚫 *Заблокировали бота*\n';
+    message += `• Всего: *${botBlocked.total}* чел\n`;
+    message += `• За 30д: *${botBlocked.last30d}* чел\n`;
+    message += `• За 7д: *${botBlocked.last7d}* чел\n`;
 
     // Telegram лимит — 4096 символов. Разбиваем если нужно
     if (message.length <= 4096) {
