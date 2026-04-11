@@ -64,7 +64,7 @@ const formatAnalyticsMessage = (data: Awaited<ReturnType<typeof getAnalytics>>, 
       ? data.topSources.map(([src, cnt]) => `  • \`${src}\`: ${cnt}`).join('\n')
       : '  _нет данных_';
 
-  return [
+  const lines = [
     `📊 *Аналитика* — ${periodLabel}`,
     ``,
     `👥 *Пользователи*`,
@@ -76,13 +76,27 @@ const formatAnalyticsMessage = (data: Awaited<ReturnType<typeof getAnalytics>>, 
     `• MAU (последний): *${data.mau}*`,
     `• Check-in'ов за период: *${data.totalCheckins}*`,
     ``,
-    `🔄 *Retention* _(глобальный, все когорты)_`,
+    `🔄 *Retention* _(window-based)_`,
     `• D7: *${data.retentionD7}%*`,
     `• D30: *${data.retentionD30}%*`,
-    ``,
-    `🌐 *Топ источников*`,
-    sourcesLine,
-  ].join('\n');
+  ];
+
+  if (data.segments) {
+    const s = data.segments;
+    lines.push(
+      ``,
+      `🎯 *Сегментация*`,
+      `• Power (5+/7д): *${s.power}*`,
+      `• Active (1-4/7д): *${s.active}*`,
+      `• Dormant (8-30д): *${s.dormant}*`,
+      `• Churned (30д+): *${s.churned}*`,
+      `• Zombie: *${s.zombie}*`,
+    );
+  }
+
+  lines.push(``, `🌐 *Топ источников*`, sourcesLine);
+
+  return lines.join('\n');
 };
 
 /**
