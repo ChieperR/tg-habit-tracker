@@ -71,7 +71,22 @@ export const handleFunnel = async (ctx: BotContext): Promise<void> => {
     message += `• Стрик 14+д потерян: *${streakBreaks.broke14plus}* раз`;
     message += streakBreaks.broke14plus > 0 ? ` (вернулись: *${retPct(streakBreaks.returned14plus, streakBreaks.broke14plus)}%*)\n` : '\n';
 
-    await ctx.reply(message, { parse_mode: 'Markdown' });
+    // Telegram лимит — 4096 символов. Разбиваем если нужно
+    if (message.length <= 4096) {
+      await ctx.reply(message, { parse_mode: 'Markdown' });
+    } else {
+      const sections = message.split('\n\n');
+      let chunk = '';
+      for (const section of sections) {
+        if (chunk.length + section.length + 2 > 4096) {
+          if (chunk) await ctx.reply(chunk, { parse_mode: 'Markdown' });
+          chunk = section;
+        } else {
+          chunk += (chunk ? '\n\n' : '') + section;
+        }
+      }
+      if (chunk) await ctx.reply(chunk, { parse_mode: 'Markdown' });
+    }
   } catch (err) {
     console.error('[funnel] Ошибка:', err);
     await ctx.reply('❌ Не удалось получить воронку');

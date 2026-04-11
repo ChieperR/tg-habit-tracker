@@ -73,7 +73,10 @@ export const trackEvent = async (
   metadata?: Record<string, unknown>
 ): Promise<void> => {
   try {
-    await prisma.$transaction([
+    // bot_blocked и reminder_sent — не пользовательские действия, не обновляем lastActiveAt
+    const isPassiveEvent = type === 'bot_blocked' || type === 'reminder_sent';
+
+    const ops = [
       prisma.analyticsEvent.create({
         data: {
           userId,
@@ -81,11 +84,15 @@ export const trackEvent = async (
           metadata: metadata ? JSON.stringify(metadata) : null,
         },
       }),
-      prisma.user.update({
-        where: { id: userId },
-        data: { lastActiveAt: new Date() },
-      }),
-    ]);
+      ...(!isPassiveEvent
+        ? [prisma.user.update({
+            where: { id: userId },
+            data: { lastActiveAt: new Date() },
+          })]
+        : []),
+    ];
+
+    await prisma.$transaction(ops);
   } catch (err) {
     console.error('[analytics] trackEvent error:', err);
   }
@@ -125,6 +132,7 @@ export const getUserSegments = async (): Promise<SegmentationResult> => {
       habits: {
         where: { isActive: true },
         select: {
+          reminderTime: true,
           logs: {
             where: { completed: true },
             orderBy: { date: 'desc' as const },
@@ -136,22 +144,7 @@ export const getUserSegments = async (): Promise<SegmentationResult> => {
     },
   });
 
-  // Получаем checkin counts за 7 дней для каждого юзера
-  const checkinCounts = await prisma.habitLog.groupBy({
-    by: ['habitId'],
-    where: { completed: true, date: { gte: date7dAgo } },
-    _count: { id: true },
-  });
-
-  // Маппим habitId -> userId
-  const habitUserMap = new Map<number, number>();
-  for (const user of users) {
-    for (const habit of user.habits) {
-      // Нужен habitId — получим из отдельного запроса
-    }
-  }
-
-  // Проще: получаем per-user checkin count за 7 дней
+  // Получаем per-user checkin count за 7 дней
   const recentCheckins = await prisma.habitLog.findMany({
     where: { completed: true, date: { gte: date7dAgo } },
     select: { habit: { select: { userId: true } } },
@@ -167,7 +160,8 @@ export const getUserSegments = async (): Promise<SegmentationResult> => {
 
   for (const user of users) {
     const count7d = userCheckinCount.get(user.id) ?? 0;
-    const remindersEnabled = user.morningEnabled || user.eveningEnabled;
+    const hasHabitReminders = user.habits.some((h) => h.reminderTime !== null);
+    const remindersEnabled = user.morningEnabled || user.eveningEnabled || hasHabitReminders;
 
     // Найти дату последнего checkin'а
     let lastCheckinDate: string | null = null;
@@ -244,26 +238,45 @@ export const getActivationFunnel = async (): Promise<ActivationFunnelResult> => 
     select: { id: true, createdAt: true },
   });
 
+  // Батч: получаем все checkin даты для eligible юзеров одним запросом
+  const allUserIds = allUsers.map((u) => u.id);
+  const funnelLogs = allUserIds.length > 0
+    ? await prisma.habitLog.findMany({
+        where: {
+          completed: true,
+          habit: { userId: { in: allUserIds } },
+        },
+        select: { date: true, habit: { select: { userId: true } } },
+      })
+    : [];
+
+  const funnelUserDates = new Map<number, Set<string>>();
+  for (const log of funnelLogs) {
+    const uid = log.habit.userId;
+    if (!funnelUserDates.has(uid)) funnelUserDates.set(uid, new Set());
+    funnelUserDates.get(uid)!.add(log.date);
+  }
+
   let d2Retained = 0;
   let d7Retained = 0;
 
   for (const user of allUsers) {
+    const dates = funnelUserDates.get(user.id);
+    if (!dates) continue;
+
     const d2Date = format(addDays(user.createdAt, 1), 'yyyy-MM-dd');
-    const d2Checkin = await prisma.habitLog.findFirst({
-      where: { habit: { userId: user.id }, completed: true, date: d2Date },
-      select: { id: true },
-    });
-    if (d2Checkin) d2Retained++;
+    if (dates.has(d2Date)) d2Retained++;
 
     // Шаг 5: checkin на 7й день (окно [6, 8])
     if (differenceInDays(now, user.createdAt) >= 8) {
       const d7Start = format(addDays(user.createdAt, 6), 'yyyy-MM-dd');
       const d7End = format(addDays(user.createdAt, 8), 'yyyy-MM-dd');
-      const d7Checkin = await prisma.habitLog.findFirst({
-        where: { habit: { userId: user.id }, completed: true, date: { gte: d7Start, lte: d7End } },
-        select: { id: true },
-      });
-      if (d7Checkin) d7Retained++;
+      for (const d of dates) {
+        if (d >= d7Start && d <= d7End) {
+          d7Retained++;
+          break;
+        }
+      }
     }
   }
 
@@ -317,7 +330,6 @@ export type HabitHealthMetrics = {
  */
 export const getHabitHealthMetrics = async (): Promise<HabitHealthMetrics> => {
   const date7dAgo = format(subDays(new Date(), 7), 'yyyy-MM-dd');
-  const date30dAgo = format(subDays(new Date(), 30), 'yyyy-MM-dd');
 
   const habits = await prisma.habit.findMany({
     where: { isActive: true },
@@ -367,16 +379,16 @@ export const getHabitHealthMetrics = async (): Promise<HabitHealthMetrics> => {
       dead++;
     }
 
-    // Survival: сколько дней привычка прожила (от первого до последнего checkin)
-    const lifespanDays = differenceInDays(new Date(lastCheckin), new Date(firstCheckin));
-
+    // Survival buckets: только для мёртвых привычек, чтобы базы совпадали
+    // diedBefore3d + diedBefore7d + survived7d = dead (общее кол-во мёртвых)
     if (!isAlive) {
+      const lifespanDays = differenceInDays(new Date(lastCheckin), new Date(firstCheckin));
       if (lifespanDays < 3) diedBefore3d++;
       else if (lifespanDays < 7) diedBefore7d++;
-    }
+      else survived7d++;
 
-    if (lifespanDays >= 7) survived7d++;
-    if (lifespanDays >= 30) survived30d++;
+      if (lifespanDays >= 30) survived30d++;
+    }
   }
 
   const byType = Array.from(typeStats.entries()).map(([type, stats]) => ({
@@ -411,15 +423,31 @@ export type ReminderEffectiveness = {
  */
 export const getReminderEffectiveness = async (): Promise<ReminderEffectiveness[]> => {
   const date30dAgo = format(subDays(new Date(), 30), 'yyyy-MM-dd');
+  const since = new Date(`${date30dAgo}T00:00:00.000Z`);
 
-  // Получаем все reminder_sent за последние 30 дней с metadata
+  // Получаем все reminder_sent за последние 30 дней
   const reminders = await prisma.analyticsEvent.findMany({
-    where: {
-      type: 'reminder_sent',
-      createdAt: { gte: new Date(`${date30dAgo}T00:00:00.000Z`) },
-    },
+    where: { type: 'reminder_sent', createdAt: { gte: since } },
     select: { userId: true, metadata: true, createdAt: true },
   });
+
+  if (reminders.length === 0) return [];
+
+  // Батч: все checkin events за тот же период (с 24ч буфером)
+  const checkinEvents = await prisma.analyticsEvent.findMany({
+    where: { type: 'checkin', createdAt: { gte: since } },
+    select: { userId: true, createdAt: true },
+  });
+
+  // userId -> отсортированные timestamps checkin'ов
+  const userCheckins = new Map<number, number[]>();
+  for (const c of checkinEvents) {
+    if (!userCheckins.has(c.userId)) userCheckins.set(c.userId, []);
+    userCheckins.get(c.userId)!.push(c.createdAt.getTime());
+  }
+  for (const times of userCheckins.values()) {
+    times.sort((a, b) => a - b);
+  }
 
   const typeStats = new Map<string, { sent: number; converted: number }>();
 
@@ -431,20 +459,23 @@ export const getReminderEffectiveness = async (): Promise<ReminderEffectiveness[
     const stats = typeStats.get(rType)!;
     stats.sent++;
 
-    // Проверяем: был ли checkin от этого юзера в течение 24 часов после напоминания
-    const after = reminder.createdAt;
-    const deadline = new Date(after.getTime() + 24 * 60 * 60 * 1000);
+    // Binary search: был ли checkin в течение 24ч после напоминания
+    const after = reminder.createdAt.getTime();
+    const deadline = after + 24 * 60 * 60 * 1000;
+    const checkins = userCheckins.get(reminder.userId);
 
-    const checkin = await prisma.analyticsEvent.findFirst({
-      where: {
-        userId: reminder.userId,
-        type: 'checkin',
-        createdAt: { gte: after, lte: deadline },
-      },
-      select: { id: true },
-    });
-
-    if (checkin) stats.converted++;
+    if (checkins) {
+      let lo = 0;
+      let hi = checkins.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (checkins[mid]! < after) lo = mid + 1;
+        else hi = mid;
+      }
+      if (lo < checkins.length && checkins[lo]! <= deadline) {
+        stats.converted++;
+      }
+    }
   }
 
   return Array.from(typeStats.entries()).map(([type, stats]) => ({
@@ -476,12 +507,13 @@ export type StreakBreakData = {
  * Стрик считается потерянным когда юзер пропускает день после N+ дней подряд.
  */
 export const getStreakBreaks = async (): Promise<StreakBreakData> => {
-  // Получаем все привычки с логами
   const habits = await prisma.habit.findMany({
     where: { isActive: true },
     select: {
       id: true,
       userId: true,
+      frequencyType: true,
+      frequencyDays: true,
       logs: {
         where: { completed: true },
         orderBy: { date: 'asc' as const },
@@ -497,6 +529,13 @@ export const getStreakBreaks = async (): Promise<StreakBreakData> => {
   for (const habit of habits) {
     if (habit.logs.length < 2) continue;
 
+    // Максимально допустимый gap для данного типа привычки (всё что больше = break)
+    const maxNormalGap = habit.frequencyType === 'weekdays'
+      ? 3   // Пт→Пн = gap 3, это норма для weekdays
+      : habit.frequencyType === 'interval'
+        ? habit.frequencyDays + 1  // interval: допускаем frequencyDays + 1 день запаса
+        : 1;  // daily: gap > 1 = break
+
     const dates = habit.logs.map((l) => l.date);
     let currentStreak = 1;
 
@@ -505,40 +544,37 @@ export const getStreakBreaks = async (): Promise<StreakBreakData> => {
       const curr = new Date(dates[i]!);
       const gap = differenceInDays(curr, prev);
 
-      if (gap === 1) {
+      if (gap <= maxNormalGap) {
         currentStreak++;
-      } else if (gap > 1) {
+      } else {
         // Стрик прервался
+        const returnedWithin7d = gap <= 7;
+
         if (currentStreak >= 3) {
           broke3plus++;
-          // Вернулся = следующий checkin существует (curr — это возвращение)
-          returned3plus++;
+          if (returnedWithin7d) returned3plus++;
         }
         if (currentStreak >= 7) {
           broke7plus++;
-          returned7plus++;
+          if (returnedWithin7d) returned7plus++;
         }
         if (currentStreak >= 14) {
           broke14plus++;
-          returned14plus++;
+          if (returnedWithin7d) returned14plus++;
         }
         currentStreak = 1;
       }
     }
 
-    // Проверяем последний стрик — если он прервался (нет checkin сегодня/вчера)
+    // Последний стрик — если прервался (нет checkin за maxNormalGap дней)
     const lastDate = dates[dates.length - 1]!;
     const daysSinceLast = differenceInDays(new Date(), new Date(lastDate));
 
-    if (daysSinceLast > 1 && currentStreak >= 3) {
-      broke3plus++;
+    if (daysSinceLast > maxNormalGap) {
+      if (currentStreak >= 3) broke3plus++;
+      if (currentStreak >= 7) broke7plus++;
+      if (currentStreak >= 14) broke14plus++;
       // Не вернулся — последний стрик, юзер ушёл
-    }
-    if (daysSinceLast > 1 && currentStreak >= 7) {
-      broke7plus++;
-    }
-    if (daysSinceLast > 1 && currentStreak >= 14) {
-      broke14plus++;
     }
   }
 
@@ -566,22 +602,49 @@ export const calculateWindowRetention = async (
     return { total: 0, retained: 0, percent: 0 };
   }
 
-  let retained = 0;
+  // Вычисляем окна для каждого юзера и общий диапазон дат
+  let minDate = '9999-99-99';
+  let maxDate = '0000-00-00';
+  const userWindows = new Map<number, { start: string; end: string }>();
 
   for (const user of users) {
-    const windowStart = format(addDays(user.createdAt, day - 1), 'yyyy-MM-dd');
-    const windowEnd = format(addDays(user.createdAt, day + 1), 'yyyy-MM-dd');
+    const start = format(addDays(user.createdAt, day - 1), 'yyyy-MM-dd');
+    const end = format(addDays(user.createdAt, day + 1), 'yyyy-MM-dd');
+    userWindows.set(user.id, { start, end });
+    if (start < minDate) minDate = start;
+    if (end > maxDate) maxDate = end;
+  }
 
-    const checkin = await prisma.habitLog.findFirst({
-      where: {
-        habit: { userId: user.id },
-        completed: true,
-        date: { gte: windowStart, lte: windowEnd },
-      },
-      select: { id: true },
-    });
+  // Один запрос: все completed логи в общем диапазоне дат для всех юзеров
+  const logs = await prisma.habitLog.findMany({
+    where: {
+      completed: true,
+      date: { gte: minDate, lte: maxDate },
+      habit: { userId: { in: users.map((u) => u.id) } },
+    },
+    select: { date: true, habit: { select: { userId: true } } },
+  });
 
-    if (checkin) retained++;
+  // userId -> Set<date>
+  const userDates = new Map<number, Set<string>>();
+  for (const log of logs) {
+    const uid = log.habit.userId;
+    if (!userDates.has(uid)) userDates.set(uid, new Set());
+    userDates.get(uid)!.add(log.date);
+  }
+
+  let retained = 0;
+  for (const user of users) {
+    const window = userWindows.get(user.id)!;
+    const dates = userDates.get(user.id);
+    if (!dates) continue;
+
+    for (const d of dates) {
+      if (d >= window.start && d <= window.end) {
+        retained++;
+        break;
+      }
+    }
   }
 
   return {
