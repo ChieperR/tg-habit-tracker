@@ -397,6 +397,154 @@ export const getHabitHealthMetrics = async (): Promise<HabitHealthMetrics> => {
   };
 };
 
+/** Эффективность напоминаний по типу */
+export type ReminderEffectiveness = {
+  type: string;
+  sent: number;
+  followedByCheckin: number;
+  conversionPercent: number;
+};
+
+/**
+ * Считает конверсию напоминание → checkin по типам.
+ * Считает checkin в течение 24 часов после reminder_sent.
+ */
+export const getReminderEffectiveness = async (): Promise<ReminderEffectiveness[]> => {
+  const date30dAgo = format(subDays(new Date(), 30), 'yyyy-MM-dd');
+
+  // Получаем все reminder_sent за последние 30 дней с metadata
+  const reminders = await prisma.analyticsEvent.findMany({
+    where: {
+      type: 'reminder_sent',
+      createdAt: { gte: new Date(`${date30dAgo}T00:00:00.000Z`) },
+    },
+    select: { userId: true, metadata: true, createdAt: true },
+  });
+
+  const typeStats = new Map<string, { sent: number; converted: number }>();
+
+  for (const reminder of reminders) {
+    const meta = reminder.metadata ? JSON.parse(reminder.metadata) as Record<string, unknown> : {};
+    const rType = (meta.type as string) || 'unknown';
+
+    if (!typeStats.has(rType)) typeStats.set(rType, { sent: 0, converted: 0 });
+    const stats = typeStats.get(rType)!;
+    stats.sent++;
+
+    // Проверяем: был ли checkin от этого юзера в течение 24 часов после напоминания
+    const after = reminder.createdAt;
+    const deadline = new Date(after.getTime() + 24 * 60 * 60 * 1000);
+
+    const checkin = await prisma.analyticsEvent.findFirst({
+      where: {
+        userId: reminder.userId,
+        type: 'checkin',
+        createdAt: { gte: after, lte: deadline },
+      },
+      select: { id: true },
+    });
+
+    if (checkin) stats.converted++;
+  }
+
+  return Array.from(typeStats.entries()).map(([type, stats]) => ({
+    type,
+    sent: stats.sent,
+    followedByCheckin: stats.converted,
+    conversionPercent: stats.sent > 0 ? Math.round((stats.converted / stats.sent) * 100) : 0,
+  }));
+};
+
+/** Данные о потере стриков */
+export type StreakBreakData = {
+  /** Потеряли стрик 3+ дней */
+  broke3plus: number;
+  /** Из них вернулись (checkin в течение 7 дней после потери) */
+  returned3plus: number;
+  /** Потеряли стрик 7+ дней */
+  broke7plus: number;
+  /** Из них вернулись */
+  returned7plus: number;
+  /** Потеряли стрик 14+ дней */
+  broke14plus: number;
+  /** Из них вернулись */
+  returned14plus: number;
+};
+
+/**
+ * Анализ потери стриков: сколько юзеров теряли стрики и возвращались ли.
+ * Стрик считается потерянным когда юзер пропускает день после N+ дней подряд.
+ */
+export const getStreakBreaks = async (): Promise<StreakBreakData> => {
+  // Получаем все привычки с логами
+  const habits = await prisma.habit.findMany({
+    where: { isActive: true },
+    select: {
+      id: true,
+      userId: true,
+      logs: {
+        where: { completed: true },
+        orderBy: { date: 'asc' as const },
+        select: { date: true },
+      },
+    },
+  });
+
+  let broke3plus = 0, returned3plus = 0;
+  let broke7plus = 0, returned7plus = 0;
+  let broke14plus = 0, returned14plus = 0;
+
+  for (const habit of habits) {
+    if (habit.logs.length < 2) continue;
+
+    const dates = habit.logs.map((l) => l.date);
+    let currentStreak = 1;
+
+    for (let i = 1; i < dates.length; i++) {
+      const prev = new Date(dates[i - 1]!);
+      const curr = new Date(dates[i]!);
+      const gap = differenceInDays(curr, prev);
+
+      if (gap === 1) {
+        currentStreak++;
+      } else if (gap > 1) {
+        // Стрик прервался
+        if (currentStreak >= 3) {
+          broke3plus++;
+          // Вернулся = следующий checkin существует (curr — это возвращение)
+          returned3plus++;
+        }
+        if (currentStreak >= 7) {
+          broke7plus++;
+          returned7plus++;
+        }
+        if (currentStreak >= 14) {
+          broke14plus++;
+          returned14plus++;
+        }
+        currentStreak = 1;
+      }
+    }
+
+    // Проверяем последний стрик — если он прервался (нет checkin сегодня/вчера)
+    const lastDate = dates[dates.length - 1]!;
+    const daysSinceLast = differenceInDays(new Date(), new Date(lastDate));
+
+    if (daysSinceLast > 1 && currentStreak >= 3) {
+      broke3plus++;
+      // Не вернулся — последний стрик, юзер ушёл
+    }
+    if (daysSinceLast > 1 && currentStreak >= 7) {
+      broke7plus++;
+    }
+    if (daysSinceLast > 1 && currentStreak >= 14) {
+      broke14plus++;
+    }
+  }
+
+  return { broke3plus, returned3plus, broke7plus, returned7plus, broke14plus, returned14plus };
+};
+
 /**
  * Считает window-based retention для заданного дня.
  * Юзер retained на Dn = у него есть checkin в окне [Dn-1, Dn+1] после регистрации.

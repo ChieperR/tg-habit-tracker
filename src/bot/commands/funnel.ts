@@ -1,6 +1,6 @@
 import { BotContext } from '../../types/index.js';
 import { ADMIN_TELEGRAM_ID } from '../../config.js';
-import { getActivationFunnel, getHabitHealthMetrics } from '../../services/analyticsService.js';
+import { getActivationFunnel, getHabitHealthMetrics, getReminderEffectiveness, getStreakBreaks } from '../../services/analyticsService.js';
 
 /**
  * Обработчик команды /funnel — воронка активации + метрики привычек (только для администратора)
@@ -13,9 +13,11 @@ export const handleFunnel = async (ctx: BotContext): Promise<void> => {
   }
 
   try {
-    const [funnel, habitHealth] = await Promise.all([
+    const [funnel, habitHealth, reminderEff, streakBreaks] = await Promise.all([
       getActivationFunnel(),
       getHabitHealthMetrics(),
+      getReminderEffectiveness(),
+      getStreakBreaks(),
     ]);
 
     // Воронка
@@ -47,6 +49,27 @@ export const handleFunnel = async (ctx: BotContext): Promise<void> => {
       const label = t.type === 'daily' ? 'Daily' : t.type === 'interval' ? 'Interval' : 'Weekdays';
       message += `• ${label}: *${t.alive}*/${t.total} живых (*${t.alivePercent}%*)\n`;
     }
+
+    // Reminder effectiveness
+    message += '\n📬 *Эффективность напоминаний* _(30д)_\n';
+    if (reminderEff.length === 0) {
+      message += '_нет данных_\n';
+    } else {
+      for (const r of reminderEff) {
+        const label = r.type === 'morning' ? '🌅 Утро' : r.type === 'evening' ? '🌙 Вечер' : r.type === 'habit' ? '⏰ Персональные' : r.type;
+        message += `• ${label}: *${r.followedByCheckin}*/${r.sent} (*${r.conversionPercent}%*)\n`;
+      }
+    }
+
+    // Streak breaks
+    message += '\n🔥 *Потеря стриков*\n';
+    const retPct = (ret: number, total: number) => total > 0 ? Math.round((ret / total) * 100) : 0;
+    message += `• Стрик 3+д потерян: *${streakBreaks.broke3plus}* раз`;
+    message += streakBreaks.broke3plus > 0 ? ` (вернулись: *${retPct(streakBreaks.returned3plus, streakBreaks.broke3plus)}%*)\n` : '\n';
+    message += `• Стрик 7+д потерян: *${streakBreaks.broke7plus}* раз`;
+    message += streakBreaks.broke7plus > 0 ? ` (вернулись: *${retPct(streakBreaks.returned7plus, streakBreaks.broke7plus)}%*)\n` : '\n';
+    message += `• Стрик 14+д потерян: *${streakBreaks.broke14plus}* раз`;
+    message += streakBreaks.broke14plus > 0 ? ` (вернулись: *${retPct(streakBreaks.returned14plus, streakBreaks.broke14plus)}%*)\n` : '\n';
 
     await ctx.reply(message, { parse_mode: 'Markdown' });
   } catch (err) {
