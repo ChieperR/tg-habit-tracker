@@ -56,6 +56,8 @@ export const serializeCallback = (action: CallbackAction): string => {
       return 'save';
     case 'analytics':
       return `an:${action.period}`;
+    case 'help':
+      return 'help';
     case 'feedback_confirm':
       return 'fb:ok';
     case 'feedback_edit':
@@ -189,6 +191,8 @@ export const parseCallback = (data: string): CallbackAction | null => {
       return { type: 'back_to_menu' };
     case 'save':
       return { type: 'save_day' };
+    case 'help':
+      return { type: 'help' };
     case 'noop':
       return { type: 'noop' };
   }

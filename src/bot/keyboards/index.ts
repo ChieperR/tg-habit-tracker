@@ -19,6 +19,8 @@ export const createMainMenuKeyboard = (): InlineKeyboard => {
     .text('➕ Добавить', serializeCallback({ type: 'habit_add' }))
     .row()
     .text('📊 Статистика', serializeCallback({ type: 'stats' }))
+    .text('📖 Справка', serializeCallback({ type: 'help' }))
+    .row()
     .text('⚙️ Настройки', serializeCallback({ type: 'settings' }));
 };
 

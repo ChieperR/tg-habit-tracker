@@ -6,6 +6,7 @@ import { showHabitsList } from '../commands/habits.js';
 import { showStats } from '../commands/stats.js';
 import { showWeekly, getPrevWeekStart, getNextWeekStart } from '../commands/weekly.js';
 import { showSettings } from '../commands/settings.js';
+import { handleHelp } from '../commands/help.js';
 import { showAnalytics } from '../commands/analytics.js';
 import { handleHabitToggle, handleHabitDeletePrompt, handleHabitConfirmDelete, handleHabitDetails, handleHabitReminderRemove } from './handlers/habitCallbacks.js';
 import { handleSettingsCallback } from './handlers/settingsCallbacks.js';
@@ -109,6 +110,11 @@ export const handleCallback = async (ctx: BotContext): Promise<void> => {
 
       case 'settings':
         await showSettings(ctx);
+        await ctx.answerCallbackQuery();
+        break;
+
+      case 'help':
+        await handleHelp(ctx);
         await ctx.answerCallbackQuery();
         break;
 
