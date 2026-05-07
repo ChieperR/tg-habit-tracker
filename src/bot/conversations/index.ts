@@ -4,9 +4,10 @@
  */
 
 export { addHabitConversation } from './addHabit.js';
-export { 
-  setMorningTimeConversation, 
-  setEveningTimeConversation, 
+export { feedbackConversation } from './feedback.js';
+export {
+  setMorningTimeConversation,
+  setEveningTimeConversation,
   setTimezoneConversation,
   setHabitReminderConversation,
 } from './settings.js';

@@ -141,4 +141,10 @@ export type CallbackAction =
   | { type: 'analytics'; period: '7d' | '30d' | '90d' | 'all' }
   | { type: 'back_to_menu' }
   | { type: 'save_day' }
+  | { type: 'help' }
+  | { type: 'feedback_confirm' }
+  | { type: 'feedback_edit' }
+  | { type: 'feedback_cancel' }
+  | { type: 'feedback_admin_reply'; feedbackId: number }
+  | { type: 'feedback_admin_seen'; feedbackId: number }
   | { type: 'noop' };

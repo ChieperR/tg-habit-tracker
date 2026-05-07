@@ -35,6 +35,8 @@ model User {
   source String @default("organic")
   /// Дата последней активности
   lastActiveAt DateTime?
+  /// Дата отправки последнего фидбэка (для rate-limit /feedback)
+  lastFeedbackAt DateTime?
   /// Дата создания аккаунта
   createdAt DateTime @default(now())
 
@@ -42,6 +44,32 @@ model User {
   habits Habit[]
   /// Аналитические события
   analyticsEvents AnalyticsEvent[]
+  /// Отправленные фидбэки
+  feedbackMessages FeedbackMessage[]
+}
+
+/// Сообщение фидбэка от юзера
+model FeedbackMessage {
+  id           Int       @id @default(autoincrement())
+  /// Текст сообщения юзера
+  text         String
+  /// Telegram file_id скриншота (если приложен)
+  photoFileId  String?
+  /// Статус: "new" | "seen" | "replied"
+  status       String    @default("new")
+  /// Текст ответа админа (если ответил)
+  adminReply   String?
+  /// Когда админ ответил/закрыл
+  repliedAt    DateTime?
+  /// Дата создания фидбэка
+  createdAt    DateTime  @default(now())
+
+  /// Автор фидбэка
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       Int
+
+  @@index([status])
+  @@index([createdAt])
 }
 
 /// Аналитическое событие

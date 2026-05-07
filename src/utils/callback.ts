@@ -56,6 +56,18 @@ export const serializeCallback = (action: CallbackAction): string => {
       return 'save';
     case 'analytics':
       return `an:${action.period}`;
+    case 'help':
+      return 'help';
+    case 'feedback_confirm':
+      return 'fb:ok';
+    case 'feedback_edit':
+      return 'fb:ed';
+    case 'feedback_cancel':
+      return 'fb:cn';
+    case 'feedback_admin_reply':
+      return `fb:r:${action.feedbackId}`;
+    case 'feedback_admin_seen':
+      return `fb:s:${action.feedbackId}`;
     case 'noop':
       return 'noop';
   }
@@ -158,10 +170,29 @@ export const parseCallback = (data: string): CallbackAction | null => {
       }
       return null;
     }
+    case 'fb': {
+      const sub = parts[1];
+      if (sub === 'ok') return { type: 'feedback_confirm' };
+      if (sub === 'ed') return { type: 'feedback_edit' };
+      if (sub === 'cn') return { type: 'feedback_cancel' };
+      if (sub === 'r') {
+        const feedbackId = parseInt(parts[2] ?? '', 10);
+        if (isNaN(feedbackId)) return null;
+        return { type: 'feedback_admin_reply', feedbackId };
+      }
+      if (sub === 's') {
+        const feedbackId = parseInt(parts[2] ?? '', 10);
+        if (isNaN(feedbackId)) return null;
+        return { type: 'feedback_admin_seen', feedbackId };
+      }
+      return null;
+    }
     case 'menu':
       return { type: 'back_to_menu' };
     case 'save':
       return { type: 'save_day' };
+    case 'help':
+      return { type: 'help' };
     case 'noop':
       return { type: 'noop' };
   }

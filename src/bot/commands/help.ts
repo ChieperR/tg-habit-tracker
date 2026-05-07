@@ -15,6 +15,7 @@ export const handleHelp = async (ctx: BotContext): Promise<void> => {
 /habits — Список привычек
 /stats — Статистика
 /settings — Настройки
+/feedback — Обратная связь
 
 *Как пользоваться:*
 
@@ -39,6 +40,9 @@ export const handleHelp = async (ctx: BotContext): Promise<void> => {
 
 🔹 *Статистика*
 Смотри streak'и 🔥, процент выполнения и прогресс по каждой привычке
+
+🔹 *Обратная связь*
+/feedback — расскажи что не работает или чего не хватает. На важные сообщения автор отвечает прямо в чат
   `.trim();
 
   await ctx.reply(helpMessage, {
