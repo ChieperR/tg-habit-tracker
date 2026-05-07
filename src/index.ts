@@ -41,7 +41,7 @@ const main = async (): Promise<void> => {
   const adminChatIdRaw = process.env.ADMIN_CHAT_ID;
   const adminChatId = adminChatIdRaw ? parseInt(adminChatIdRaw, 10) : NaN;
   const adminBot =
-    adminToken && Number.isFinite(adminChatId)
+    adminToken && Number.isFinite(adminChatId) && adminChatId > 0
       ? createAdminBot(adminToken, adminChatId)
       : null;
 
@@ -79,11 +79,14 @@ const main = async (): Promise<void> => {
   console.log('✅ Бот запущен и готов к работе!');
   console.log('   Нажми Ctrl+C для остановки\n');
 
-  // Запускаем оба бота параллельно. Promise.all ждёт пока ОБА завершатся
-  // (что произойдёт только при shutdown), bot.start() блокирует.
+  // Запускаем оба бота параллельно. Падение админ-бота НЕ должно ронять
+  // основной — фидбэк всё равно сохраняется в БД, юзер-фейс продолжает
+  // работать, админ-нотификации временно теряются (как при пустом токене).
   await Promise.all([
     bot.start(),
-    ...(adminBot ? [adminBot.start()] : []),
+    ...(adminBot
+      ? [adminBot.start().catch((e) => console.error('💥 Админ-бот упал:', e))]
+      : []),
   ]);
 };
 

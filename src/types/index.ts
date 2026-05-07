@@ -10,8 +10,6 @@ export type SessionData = {
   dbUserId?: number;
   /** Ожидаем от пользователя геолокацию или ввод часового пояса */
   awaitingTimezone?: boolean;
-  /** ID фидбэка, на который админ собирается ответить (только в админ-боте) */
-  feedbackReplyId?: number;
 };
 
 /** Базовый контекст с сессией */

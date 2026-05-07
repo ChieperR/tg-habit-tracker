@@ -77,29 +77,39 @@ const waitForUserInput = async (
   return { text, photoFileId };
 };
 
+/** Эскейпит спецсимволы HTML в строке (`&`, `<`, `>`). */
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 /**
  * Показывает юзеру preview собранного фидбэка с кнопками confirm/edit.
  * Возвращает 'confirm' | 'edit' | 'cancel'.
+ *
+ * Текст юзера может содержать произвольный markdown/HTML, поэтому шапка
+ * рендерится как HTML, а тело юзера эскейпится — иначе незакрытые `*`/`_`/`<`
+ * валят `400: can't parse entities` и conversation крашится.
  */
 const showPreview = async (
   conversation: BotConversation,
   ctx: BotContext,
   collected: Collected
 ): Promise<'confirm' | 'edit' | 'cancel'> => {
-  const previewBody = collected.text || '_(только скриншот, без текста)_';
-  const photoNote = collected.photoFileId ? '\n\n📎 *Скриншот прикреплён*' : '';
+  const previewBody = collected.text
+    ? escapeHtml(collected.text)
+    : '<i>(только скриншот, без текста)</i>';
+  const photoNote = collected.photoFileId ? '\n\n📎 <b>Скриншот прикреплён</b>' : '';
   const fullText =
-    `📋 *Проверь фидбэк перед отправкой:*\n\n${previewBody}${photoNote}`;
+    `📋 <b>Проверь фидбэк перед отправкой:</b>\n\n${previewBody}${photoNote}`;
 
   if (collected.photoFileId) {
     await ctx.replyWithPhoto(collected.photoFileId, {
       caption: fullText,
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       reply_markup: previewKeyboard(),
     });
   } else {
     await ctx.reply(fullText, {
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       reply_markup: previewKeyboard(),
     });
   }
@@ -172,7 +182,7 @@ export const feedbackConversation = async (
     // concurrent external-calls (replay-engine ругается «Cannot perform
     // nested or concurrent calls to external»). Исключения внутри гасим,
     // чтобы провал notify/track не сломал юзеру UX.
-    const feedback = await conversation.external(async () => {
+    await conversation.external(async () => {
       const created = await createFeedback({
         userId: user.id,
         text: collected.text,
@@ -184,18 +194,15 @@ export const feedbackConversation = async (
         console.error('[feedback] trackEvent failed:', e);
       }
       try {
-        await notifyAdminAboutFeedback(created.id);
+        await notifyAdminAboutFeedback(created);
       } catch (e) {
         console.error('[feedback] notifyAdminAboutFeedback failed:', e);
       }
-      return created;
     });
-
-    void feedback; // переменная остаётся для возможных будущих расширений
 
     await ctx.reply(
       '✅ Спасибо! Фидбэк отправлен.\n\n' +
-        'При необходимости, автор пришлёт ответ через этого же бота.'
+        'При необходимости автор пришлёт ответ через этого же бота.'
     );
     return;
   }

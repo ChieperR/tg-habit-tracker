@@ -47,9 +47,13 @@ export const adminReplyConversation = async (
     await ctx.reply('❌ Пустое сообщение');
     return;
   }
+  if (replyText.length > 4000) {
+    await ctx.reply('❌ Слишком длинно, уложись в 4000 символов и пришли ответ снова через «💬 Ответить».');
+    return;
+  }
 
   const delivered = await conversation.external(() =>
-    sendReplyToUser(feedback.user.telegramId, feedbackId, replyText)
+    sendReplyToUser(feedback.user.telegramId, replyText)
   );
 
   if (!delivered) {

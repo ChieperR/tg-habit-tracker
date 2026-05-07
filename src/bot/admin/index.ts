@@ -29,17 +29,18 @@ export const createAdminBot = (
 ): Bot<BotContext> => {
   const bot = new Bot<BotContext>(token);
 
-  bot.use(session({ initial: initialSessionData }));
-  bot.use(conversations());
-  bot.use(createConversation(adminReplyConversation, 'adminReply'));
-
-  // Любые сообщения от не-админов — silent ignore. Админ-бот закрытый.
+  // Access-guard ПЕРВЫМ — чтобы не плодить in-memory session/conversation
+  // флавор для случайных посторонних. Закрытый бот, не-админам silent ignore.
   bot.use(async (ctx, next) => {
     if (!ctx.from || ctx.from.id !== adminChatId) {
       return;
     }
     await next();
   });
+
+  bot.use(session({ initial: initialSessionData }));
+  bot.use(conversations());
+  bot.use(createConversation(adminReplyConversation, 'adminReply'));
 
   bot.command('start', async (ctx) => {
     await ctx.reply(

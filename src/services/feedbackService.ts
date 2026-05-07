@@ -1,4 +1,4 @@
-import { FeedbackMessage, Prisma } from '@prisma/client';
+import { FeedbackMessage, User } from '@prisma/client';
 import { prisma } from '../db/index.js';
 
 /**
@@ -18,7 +18,7 @@ export const createFeedback = async (input: {
   userId: number;
   text: string;
   photoFileId?: string | null;
-}): Promise<FeedbackMessage> => {
+}): Promise<FeedbackMessage & { user: User }> => {
   const [feedback] = await prisma.$transaction([
     prisma.feedbackMessage.create({
       data: {
@@ -26,6 +26,7 @@ export const createFeedback = async (input: {
         text: input.text,
         photoFileId: input.photoFileId ?? null,
       },
+      include: { user: true },
     }),
     prisma.user.update({
       where: { id: input.userId },
@@ -93,17 +94,15 @@ export const getFeedbackCooldownSeconds = async (userId: number): Promise<number
 };
 
 /**
- * Контекст юзера для уведомления админу: стаж, число привычек, longest streak
- * среди всех привычек, общее число чек-инов. Используется в `📬 Новый фидбэк`
- * шапке, чтобы админ сразу видел кто пишет.
+ * Контекст юзера для уведомления админу: стаж, число привычек, общее число
+ * чек-инов. Используется в `📬 Новый фидбэк` шапке, чтобы админ сразу видел
+ * кто пишет.
  */
 export type FeedbackUserContext = {
   /** Сколько дней с регистрации */
   daysSinceJoin: number;
   /** Количество активных привычек */
   activeHabits: number;
-  /** Лучший streak среди всех привычек юзера */
-  longestStreak: number;
   /** Всего успешных чек-инов */
   totalCheckins: number;
 };
@@ -113,63 +112,16 @@ export type FeedbackUserContext = {
  * @param userId - ID юзера в БД
  */
 export const getFeedbackUserContext = async (userId: number): Promise<FeedbackUserContext> => {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { createdAt: true },
-  });
+  const [user, activeHabits, totalCheckins] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { createdAt: true },
+    }),
+    prisma.habit.count({ where: { userId, isActive: true } }),
+    prisma.habitLog.count({ where: { habit: { userId }, completed: true } }),
+  ]);
   const daysSinceJoin = user
     ? Math.floor((Date.now() - user.createdAt.getTime()) / (24 * 3600 * 1000))
     : 0;
-
-  const activeHabits = await prisma.habit.count({
-    where: { userId, isActive: true },
-  });
-
-  const totalCheckins = await prisma.habitLog.count({
-    where: { habit: { userId }, completed: true },
-  });
-
-  // longest streak — берём максимум из агрегата по сериям подряд для каждой
-  // привычки. Для простоты считаем sql-зависимым способом: выбираем все
-  // completed-логи юзера, сортируем по дате, в цикле считаем максимум
-  // непрерывных дней. Дешевле чем гонять несколько SQL.
-  const logs = await prisma.habitLog.findMany({
-    where: { habit: { userId }, completed: true },
-    select: { habitId: true, date: true },
-    orderBy: [{ habitId: 'asc' }, { date: 'asc' }],
-  });
-  const longestStreak = computeLongestStreak(logs);
-
-  return { daysSinceJoin, activeHabits, longestStreak, totalCheckins };
-};
-
-const ONE_DAY_MS = 24 * 3600 * 1000;
-
-/**
- * Считает максимальный непрерывный streak (дней подряд) из плоского списка
- * `{habitId, date}` записей. Логи приходят отсортированными по habitId, дате.
- */
-const computeLongestStreak = (
-  logs: { habitId: number; date: string }[]
-): number => {
-  let maxStreak = 0;
-  let currentHabit = -1;
-  let prevTs = 0;
-  let streak = 0;
-  for (const log of logs) {
-    const ts = new Date(log.date).getTime();
-    if (log.habitId !== currentHabit) {
-      currentHabit = log.habitId;
-      streak = 1;
-      prevTs = ts;
-    } else if (ts - prevTs === ONE_DAY_MS) {
-      streak += 1;
-      prevTs = ts;
-    } else {
-      streak = 1;
-      prevTs = ts;
-    }
-    if (streak > maxStreak) maxStreak = streak;
-  }
-  return maxStreak;
+  return { daysSinceJoin, activeHabits, totalCheckins };
 };

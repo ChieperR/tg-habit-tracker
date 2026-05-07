@@ -1,11 +1,11 @@
 import { Bot, InlineKeyboard, InputFile } from 'grammy';
+import { FeedbackMessage, User } from '@prisma/client';
 import { BotContext } from '../types/index.js';
 import { serializeCallback } from '../utils/callback.js';
 import {
   FeedbackUserContext,
   getFeedbackUserContext,
 } from './feedbackService.js';
-import { prisma } from '../db/index.js';
 
 /**
  * Транспорт уведомлений админу + ответов юзеру.
@@ -47,19 +47,15 @@ export const isAdminNotifierEnabled = (): boolean =>
  * Шлёт админу уведомление о новом фидбэке. Если админ-бот не сконфигурен —
  * молча no-op (фидбэк всё равно сохраняется в БД, админ может прочитать
  * руками).
- * @param feedbackId - ID записи `FeedbackMessage`
+ * @param feedback - Запись `FeedbackMessage` с подгруженным `user`
  */
-export const notifyAdminAboutFeedback = async (feedbackId: number): Promise<void> => {
+export const notifyAdminAboutFeedback = async (
+  feedback: FeedbackMessage & { user: User }
+): Promise<void> => {
   if (!adminBot || adminChatId === null) {
     console.warn('[feedback] admin bot not configured, skipping notification');
     return;
   }
-
-  const feedback = await prisma.feedbackMessage.findUnique({
-    where: { id: feedbackId },
-    include: { user: true },
-  });
-  if (!feedback) return;
 
   const ctx: FeedbackUserContext = await getFeedbackUserContext(feedback.userId);
 
@@ -83,7 +79,7 @@ export const notifyAdminAboutFeedback = async (feedbackId: number): Promise<void
     `📬 Новый фидбэк №${feedback.id}\n` +
     `От: ${displayName} (id ${feedback.user.telegramId})\n` +
     `Стаж: ${ctx.daysSinceJoin} дн., ${ctx.activeHabits} привычек, ` +
-    `longest streak ${ctx.longestStreak}, чек-инов ${ctx.totalCheckins}`;
+    `чек-инов ${ctx.totalCheckins}`;
 
   const quoted = feedback.text
     .split('\n')
@@ -141,12 +137,10 @@ export const notifyAdminAboutFeedback = async (feedbackId: number): Promise<void
  * Отправляет юзеру ответ от админа. Шлёт через основной habit-tracker бот,
  * чтобы юзер видел знакомое имя бота.
  * @param userTelegramId - Telegram ID юзера
- * @param feedbackId - ID фидбэка (для ссылки в сообщении)
  * @param replyText - Текст ответа админа
  */
 export const sendReplyToUser = async (
   userTelegramId: bigint,
-  feedbackId: number,
   replyText: string
 ): Promise<boolean> => {
   if (!userBot) {
