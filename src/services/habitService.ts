@@ -7,7 +7,8 @@ import {
   isHabitDueToday,
   isHabitDueOnDate,
   parseTime,
-  getNowInTimezone,
+  getCurrentMinutesInTimezone,
+  DEFAULT_TIMEZONE_OFFSET,
 } from '../utils/date.js';
 
 /**
@@ -276,18 +277,23 @@ export const getHabitLogs = async (
 };
 
 /**
- * Устанавливает время персонального напоминания для привычки
+ * Устанавливает время персонального напоминания для привычки.
+ *
+ * Поведение `lastHabitReminderDate` зависит от того, прошёл ли
+ * устанавливаемый момент в локальном дне юзера:
+ * - **Прошёл** → ставим `lastHabitReminderDate = today`, чтобы scheduler
+ *   не выпалил «catch-up» напоминание сразу же после установки. Следующее
+ *   настоящее напоминание придёт завтра в назначенное время.
+ * - **Ещё впереди** → ставим `lastHabitReminderDate = null` (а не
+ *   оставляем как есть), чтобы scheduler гарантированно сработал сегодня
+ *   в новое время — даже если до этого уже отправляли по старому
+ *   reminderTime.
+ *
+ * Если `time === null` (юзер удаляет напоминание) — чистим оба поля.
+ *
  * @param habitId - ID привычки
  * @param time - Время в формате HH:MM или null для удаления
  * @returns Обновлённая привычка
- *
- * Если устанавливаемое время уже прошло в локальном дне юзера —
- * проставляем `lastHabitReminderDate = today`, чтобы scheduler не
- * выпалил «catch-up» напоминание сразу же после установки. Следующее
- * настоящее напоминание придёт завтра в назначенное время.
- *
- * Если время ещё впереди в текущем дне — поле не трогаем, scheduler
- * штатно отправит напоминание сегодня в этот час.
  */
 export const updateHabitReminder = async (
   habitId: number,
@@ -311,18 +317,17 @@ export const updateHabitReminder = async (
     throw new Error(`Habit ${habitId} not found`);
   }
 
-  const timezoneOffset = habit.user.timezoneOffset ?? 180;
-  const userNow = getNowInTimezone(timezoneOffset);
-  const currentMinutes = userNow.getUTCHours() * 60 + userNow.getUTCMinutes();
-  const target = parseTime(time);
-  const targetMinutes = target.hours * 60 + target.minutes;
+  const timezoneOffset = habit.user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET;
+  const currentMinutes = getCurrentMinutesInTimezone(timezoneOffset);
+  const { hours, minutes } = parseTime(time);
+  const targetMinutes = hours * 60 + minutes;
   const skipToday = currentMinutes >= targetMinutes;
 
   return prisma.habit.update({
     where: { id: habitId },
     data: {
       reminderTime: time,
-      ...(skipToday && { lastHabitReminderDate: getTodayDate(timezoneOffset) }),
+      lastHabitReminderDate: skipToday ? getTodayDate(timezoneOffset) : null,
     },
   });
 };
