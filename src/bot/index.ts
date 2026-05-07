@@ -39,6 +39,18 @@ const initialSessionData = (): SessionData => ({});
 export const createBot = (token: string): Bot<BotContext> => {
   const bot = new Bot<BotContext>(token);
 
+  // Фильтр устаревших сообщений: если бот лежал и при старте получает лавину
+  // накопленных updates, всё что старше 5 минут — silent ignore. Callback'и
+  // не фильтруем — они идемпотентны и несут дату действия в callback_data,
+  // повторная обработка не ломает данные.
+  bot.use(async (ctx, next) => {
+    const msgDate = ctx.message?.date;
+    if (msgDate && Date.now() / 1000 - msgDate > 300) {
+      return;
+    }
+    await next();
+  });
+
   // Middleware: сессии
   bot.use(session({ initial: initialSessionData }));
 

@@ -3,6 +3,7 @@ import type { BotCommand } from 'grammy/types';
 import { conversations, createConversation } from '@grammyjs/conversations';
 import { BotContext, SessionData } from '../../types/index.js';
 import { parseCallback } from '../../utils/callback.js';
+import { safeAnswerCallback } from '../../utils/telegram.js';
 import { markFeedbackSeen } from '../../services/feedbackService.js';
 import { adminReplyConversation } from './conversations/adminReply.js';
 import { handleAdmin } from './commands/admin.js';
@@ -52,6 +53,15 @@ export const createAdminBot = (
     await next();
   });
 
+  // Фильтр устаревших сообщений (см. createBot — тот же мотив).
+  bot.use(async (ctx, next) => {
+    const msgDate = ctx.message?.date;
+    if (msgDate && Date.now() / 1000 - msgDate > 300) {
+      return;
+    }
+    await next();
+  });
+
   bot.use(session({ initial: initialSessionData }));
   bot.use(conversations());
   bot.use(createConversation(adminReplyConversation, 'adminReply'));
@@ -75,25 +85,25 @@ export const createAdminBot = (
     const data = ctx.callbackQuery.data;
     const action = parseCallback(data);
     if (!action) {
-      await ctx.answerCallbackQuery();
+      await safeAnswerCallback(ctx);
       return;
     }
 
     if (action.type === 'feedback_admin_reply') {
-      await ctx.answerCallbackQuery();
+      await safeAnswerCallback(ctx);
       await ctx.conversation.enter('adminReply', action.feedbackId);
       return;
     }
 
     if (action.type === 'analytics') {
       await showAnalytics(ctx, action.period);
-      await ctx.answerCallbackQuery();
+      await safeAnswerCallback(ctx);
       return;
     }
 
     if (action.type === 'feedback_admin_seen') {
       await markFeedbackSeen(action.feedbackId);
-      await ctx.answerCallbackQuery({ text: 'Отмечено как просмотренное' });
+      await safeAnswerCallback(ctx, 'Отмечено как просмотренное');
       // Снимаем кнопки с сообщения, чтобы не было соблазна жать ещё раз
       try {
         await ctx.editMessageReplyMarkup({ reply_markup: undefined });
@@ -111,7 +121,7 @@ export const createAdminBot = (
       return;
     }
 
-    await ctx.answerCallbackQuery();
+    await safeAnswerCallback(ctx);
   });
 
   bot.catch((err) => {

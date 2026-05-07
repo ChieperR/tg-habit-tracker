@@ -8,6 +8,7 @@ import {
 import { notifyAdminAboutFeedback } from '../../services/feedbackTransport.js';
 import { trackEvent } from '../../services/analyticsService.js';
 import { serializeCallback } from '../../utils/callback.js';
+import { safeAnswerCallback } from '../../utils/telegram.js';
 
 /**
  * Диалог отправки фидбэка
@@ -118,15 +119,15 @@ const showPreview = async (
   const data = choiceCtx.callbackQuery.data;
 
   if (data === serializeCallback({ type: 'feedback_confirm' })) {
-    await choiceCtx.answerCallbackQuery();
+    await safeAnswerCallback(choiceCtx);
     return 'confirm';
   }
   if (data === serializeCallback({ type: 'feedback_edit' })) {
-    await choiceCtx.answerCallbackQuery();
+    await safeAnswerCallback(choiceCtx);
     return 'edit';
   }
   if (data === serializeCallback({ type: 'feedback_cancel' })) {
-    await choiceCtx.answerCallbackQuery();
+    await safeAnswerCallback(choiceCtx);
     return 'cancel';
   }
   // прочие callback'и — игнорируем как noise, считаем за отмену
