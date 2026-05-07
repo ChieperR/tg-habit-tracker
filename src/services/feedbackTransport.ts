@@ -139,11 +139,12 @@ export const notifyAdminAboutFeedback = async (
  * report'ов и любых будущих админских уведомлений — единая точка входа.
  *
  * @param text - Текст сообщения
- * @param options - parse_mode, reply_markup и другие sendMessage-опции
+ * @param options - Любые опции `sendMessage` grammy (parse_mode, reply_markup,
+ *                  link_preview_options и т.д.) — пробрасываются как есть.
  */
 export const sendAdminMessage = async (
   text: string,
-  options?: { parse_mode?: 'Markdown' | 'HTML' | 'MarkdownV2' }
+  options?: Parameters<Bot<BotContext>['api']['sendMessage']>[2]
 ): Promise<void> => {
   if (adminChatId === null) {
     console.warn('[admin] ADMIN_CHAT_ID не задан, пропускаю админское сообщение');
