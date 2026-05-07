@@ -134,6 +134,36 @@ export const notifyAdminAboutFeedback = async (
 };
 
 /**
+ * Шлёт админу произвольное сообщение через админ-бот (или через основной
+ * как fallback, если админ-бот не сконфигурен). Используется для daily
+ * report'ов и любых будущих админских уведомлений — единая точка входа.
+ *
+ * @param text - Текст сообщения
+ * @param options - parse_mode, reply_markup и другие sendMessage-опции
+ */
+export const sendAdminMessage = async (
+  text: string,
+  options?: { parse_mode?: 'Markdown' | 'HTML' | 'MarkdownV2' }
+): Promise<void> => {
+  if (adminChatId === null) {
+    console.warn('[admin] ADMIN_CHAT_ID не задан, пропускаю админское сообщение');
+    return;
+  }
+  // Предпочитаем админ-бот, fallback на основной — чтобы при пустом
+  // ADMIN_BOT_TOKEN админские уведомления не терялись совсем.
+  const target = adminBot ?? userBot;
+  if (!target) {
+    console.error('[admin] ни adminBot, ни userBot не инициализированы');
+    return;
+  }
+  try {
+    await target.api.sendMessage(adminChatId, text, options);
+  } catch (e) {
+    console.error('[admin] failed to send admin message:', e);
+  }
+};
+
+/**
  * Отправляет юзеру ответ от админа. Шлёт через основной habit-tracker бот,
  * чтобы юзер видел знакомое имя бота.
  * @param userTelegramId - Telegram ID юзера

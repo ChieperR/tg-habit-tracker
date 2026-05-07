@@ -3,7 +3,7 @@ import { Bot } from 'grammy';
 import { BotContext } from '../types/index.js';
 import { checkAndSendReminders, checkAndSendHabitReminders, resetBlockedTracking } from '../services/reminderService.js';
 import { takeDailySnapshot, getDailyReport } from '../services/analyticsService.js';
-import { ADMIN_TELEGRAM_ID } from '../config.js';
+import { sendAdminMessage } from '../services/feedbackTransport.js';
 
 /**
  * Планировщик задач для отправки напоминаний и аналитики
@@ -56,7 +56,7 @@ export const startScheduler = (bot: Bot<BotContext>): void => {
       await takeDailySnapshot();
       const report = await getDailyReport();
       const message = formatDailyReportMessage(report);
-      await bot.api.sendMessage(ADMIN_TELEGRAM_ID, message, { parse_mode: 'Markdown' });
+      await sendAdminMessage(message, { parse_mode: 'Markdown' });
     } catch (error) {
       console.error('[analytics] Ошибка ежедневного снапшота:', error);
     }

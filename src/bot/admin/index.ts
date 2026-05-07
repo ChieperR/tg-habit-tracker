@@ -23,6 +23,16 @@ import { handleFunnel } from './commands/funnel.js';
 const initialSessionData = (): SessionData => ({});
 
 /**
+ * Список админ-команд для setMyCommands. Показываются в выпадающем меню
+ * админ-бота (его видит только админ — остальные через guard).
+ */
+export const ADMIN_BOT_COMMANDS: BotCommand[] = [
+  { command: 'admin', description: '📊 Статистика бота' },
+  { command: 'analytics', description: '📈 Аналитика по периодам' },
+  { command: 'funnel', description: '🎯 Воронка + здоровье привычек' },
+];
+
+/**
  * Создаёт инстанс админ-бота.
  * @param token - Токен админ-бота от BotFather
  * @param adminChatId - Telegram user_id админа (для проверки доступа)
@@ -46,14 +56,14 @@ export const createAdminBot = (
   bot.use(conversations());
   bot.use(createConversation(adminReplyConversation, 'adminReply'));
 
+  // /start text генерируется из ADMIN_BOT_COMMANDS — единственный источник
+  // истины, при добавлении новой команды не нужно править два места.
+  const startText =
+    '👋 Админ-бот habit-tracker. Доступные команды:\n' +
+    ADMIN_BOT_COMMANDS.map((c) => `/${c.command} — ${c.description}`).join('\n') +
+    '\n\nТакже сюда приходят уведомления о фидбэке с inline-кнопками.';
   bot.command('start', async (ctx) => {
-    await ctx.reply(
-      '👋 Админ-бот habit-tracker. Доступные команды:\n' +
-        '/admin — статистика бота\n' +
-        '/analytics — аналитика по периодам\n' +
-        '/funnel — воронка активации + здоровье привычек\n\n' +
-        'Также сюда приходят уведомления о фидбэке с inline-кнопками.'
-    );
+    await ctx.reply(startText);
   });
 
   // Админские команды (раньше жили в основном боте, перенесены в админ-бот)
@@ -110,16 +120,6 @@ export const createAdminBot = (
 
   return bot;
 };
-
-/**
- * Список админ-команд для setMyCommands. Показываются в выпадающем меню
- * админ-бота (его видит только админ — остальные через guard).
- */
-export const ADMIN_BOT_COMMANDS: BotCommand[] = [
-  { command: 'admin', description: '📊 Статистика бота' },
-  { command: 'analytics', description: '📈 Аналитика по периодам' },
-  { command: 'funnel', description: '🎯 Воронка + здоровье привычек' },
-];
 
 /** Применяет admin-команды к меню бота. */
 export const setAdminCommands = async (bot: Bot<BotContext>): Promise<void> => {
