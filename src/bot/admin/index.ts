@@ -57,9 +57,8 @@ export const createAdminBot = (
     }
 
     if (action.type === 'feedback_admin_reply') {
-      ctx.session.feedbackReplyId = action.feedbackId;
       await ctx.answerCallbackQuery();
-      await ctx.conversation.enter('adminReply');
+      await ctx.conversation.enter('adminReply', action.feedbackId);
       return;
     }
 

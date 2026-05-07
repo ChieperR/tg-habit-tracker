@@ -9,16 +9,17 @@ import { sendReplyToUser } from '../../../services/feedbackTransport.js';
  * Conversation в админ-боте: после нажатия «💬 Ответить» собирает текст
  * ответа админа и пересылает юзеру через основной habit-tracker бот.
  *
- * `feedbackId` передаётся через `ctx.session.feedbackReplyId` —
- * callback-обработчик в админ-боте сохраняет туда id перед `enter`.
+ * `feedbackId` передаётся как третий аргумент через `conversation.enter`.
+ * Через `ctx.session` нельзя — conversation реплеится с нуля и session
+ * к этому моменту может быть пустым / undefined.
  *
  * @module bot/admin/conversations/adminReply
  */
 export const adminReplyConversation = async (
   conversation: BotConversation,
-  ctx: BotContext
+  ctx: BotContext,
+  feedbackId: number
 ): Promise<void> => {
-  const feedbackId = ctx.session.feedbackReplyId;
   if (typeof feedbackId !== 'number') {
     await ctx.reply('❌ Что-то пошло не так — feedbackId потерян. Жми «💬 Ответить» снова.');
     return;
@@ -63,7 +64,4 @@ export const adminReplyConversation = async (
   if (delivered) {
     await ctx.reply(`✅ Ответ на фидбэк №${feedbackId} отправлен юзеру`);
   }
-
-  // чистим session
-  ctx.session.feedbackReplyId = undefined;
 };
