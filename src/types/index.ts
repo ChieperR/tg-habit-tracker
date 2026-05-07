@@ -145,6 +145,7 @@ export type CallbackAction =
   | { type: 'save_day' }
   | { type: 'feedback_confirm' }
   | { type: 'feedback_edit' }
+  | { type: 'feedback_cancel' }
   | { type: 'feedback_admin_reply'; feedbackId: number }
   | { type: 'feedback_admin_seen'; feedbackId: number }
   | { type: 'noop' };

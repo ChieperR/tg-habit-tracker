@@ -60,6 +60,8 @@ export const serializeCallback = (action: CallbackAction): string => {
       return 'fb:ok';
     case 'feedback_edit':
       return 'fb:ed';
+    case 'feedback_cancel':
+      return 'fb:cn';
     case 'feedback_admin_reply':
       return `fb:r:${action.feedbackId}`;
     case 'feedback_admin_seen':
@@ -170,6 +172,7 @@ export const parseCallback = (data: string): CallbackAction | null => {
       const sub = parts[1];
       if (sub === 'ok') return { type: 'feedback_confirm' };
       if (sub === 'ed') return { type: 'feedback_edit' };
+      if (sub === 'cn') return { type: 'feedback_cancel' };
       if (sub === 'r') {
         const feedbackId = parseInt(parts[2] ?? '', 10);
         if (isNaN(feedbackId)) return null;

@@ -30,7 +30,9 @@ const PROMPT =
 const previewKeyboard = (): InlineKeyboard =>
   new InlineKeyboard()
     .text('✅ Отправить', serializeCallback({ type: 'feedback_confirm' }))
-    .text('✏️ Редактировать', serializeCallback({ type: 'feedback_edit' }));
+    .row()
+    .text('✏️ Редактировать', serializeCallback({ type: 'feedback_edit' }))
+    .text('❌ Отмена', serializeCallback({ type: 'feedback_cancel' }));
 
 type Collected = { text: string; photoFileId: string | null };
 
@@ -113,7 +115,11 @@ const showPreview = async (
     await choiceCtx.answerCallbackQuery();
     return 'edit';
   }
-  // прочие callback'и — игнорируем как noise
+  if (data === serializeCallback({ type: 'feedback_cancel' })) {
+    await choiceCtx.answerCallbackQuery();
+    return 'cancel';
+  }
+  // прочие callback'и — игнорируем как noise, считаем за отмену
   await choiceCtx.answerCallbackQuery();
   return 'cancel';
 };
