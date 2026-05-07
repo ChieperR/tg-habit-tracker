@@ -2,7 +2,13 @@ import { Habit, HabitLog } from '@prisma/client';
 import { format } from 'date-fns';
 import { prisma } from '../db/index.js';
 import { CreateHabitInput, FrequencyType, HabitWithTodayStatus } from '../types/index.js';
-import { getTodayDate, isHabitDueToday, isHabitDueOnDate } from '../utils/date.js';
+import {
+  getTodayDate,
+  isHabitDueToday,
+  isHabitDueOnDate,
+  parseTime,
+  getNowInTimezone,
+} from '../utils/date.js';
 
 /**
  * Сервис для работы с привычками
@@ -274,16 +280,49 @@ export const getHabitLogs = async (
  * @param habitId - ID привычки
  * @param time - Время в формате HH:MM или null для удаления
  * @returns Обновлённая привычка
+ *
+ * Если устанавливаемое время уже прошло в локальном дне юзера —
+ * проставляем `lastHabitReminderDate = today`, чтобы scheduler не
+ * выпалил «catch-up» напоминание сразу же после установки. Следующее
+ * настоящее напоминание придёт завтра в назначенное время.
+ *
+ * Если время ещё впереди в текущем дне — поле не трогаем, scheduler
+ * штатно отправит напоминание сегодня в этот час.
  */
 export const updateHabitReminder = async (
   habitId: number,
   time: string | null
 ): Promise<Habit> => {
+  if (time === null) {
+    return prisma.habit.update({
+      where: { id: habitId },
+      data: {
+        reminderTime: null,
+        lastHabitReminderDate: null,
+      },
+    });
+  }
+
+  const habit = await prisma.habit.findUnique({
+    where: { id: habitId },
+    include: { user: { select: { timezoneOffset: true } } },
+  });
+  if (!habit) {
+    throw new Error(`Habit ${habitId} not found`);
+  }
+
+  const timezoneOffset = habit.user.timezoneOffset ?? 180;
+  const userNow = getNowInTimezone(timezoneOffset);
+  const currentMinutes = userNow.getUTCHours() * 60 + userNow.getUTCMinutes();
+  const target = parseTime(time);
+  const targetMinutes = target.hours * 60 + target.minutes;
+  const skipToday = currentMinutes >= targetMinutes;
+
   return prisma.habit.update({
     where: { id: habitId },
     data: {
       reminderTime: time,
-      lastHabitReminderDate: time === null ? null : undefined,
+      ...(skipToday && { lastHabitReminderDate: getTodayDate(timezoneOffset) }),
     },
   });
 };
