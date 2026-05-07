@@ -1,4 +1,4 @@
-import { Bot, InlineKeyboard } from 'grammy';
+import { Bot, InlineKeyboard, InputFile } from 'grammy';
 import { BotContext } from '../types/index.js';
 import { serializeCallback } from '../utils/callback.js';
 import {
@@ -102,19 +102,38 @@ export const notifyAdminAboutFeedback = async (feedbackId: number): Promise<void
       serializeCallback({ type: 'feedback_admin_seen', feedbackId: feedback.id })
     );
 
-  try {
-    if (feedback.photoFileId) {
-      await adminBot.api.sendPhoto(adminChatId, feedback.photoFileId, {
-        caption: fullText,
-        reply_markup: keyboard,
-      });
-    } else {
-      await adminBot.api.sendMessage(adminChatId, fullText, {
-        reply_markup: keyboard,
-      });
+  // ВАЖНО: file_id в TG привязан к боту, который его получил. Тот же
+  // file_id, переданный в другой бот, валится 400 «wrong file identifier».
+  // Решение — getFile через основной бот → URL TG-файла → re-upload через
+  // админ-бот как InputFile.
+  let photoSent = false;
+  if (feedback.photoFileId && userBot) {
+    try {
+      const file = await userBot.api.getFile(feedback.photoFileId);
+      if (file.file_path) {
+        const url = `https://api.telegram.org/file/bot${userBot.token}/${file.file_path}`;
+        await adminBot.api.sendPhoto(adminChatId, new InputFile(new URL(url)), {
+          caption: fullText,
+          reply_markup: keyboard,
+        });
+        photoSent = true;
+      }
+    } catch (e) {
+      console.error('[feedback] failed to re-upload photo for admin:', e);
     }
-  } catch (e) {
-    console.error('[feedback] failed to notify admin:', e);
+  }
+
+  if (!photoSent) {
+    const text = feedback.photoFileId
+      ? `${fullText}\n\n⚠️ К фидбэку был приложен скриншот, но переслать его не удалось.`
+      : fullText;
+    try {
+      await adminBot.api.sendMessage(adminChatId, text, {
+        reply_markup: keyboard,
+      });
+    } catch (e) {
+      console.error('[feedback] failed to notify admin:', e);
+    }
   }
 };
 
