@@ -10,6 +10,8 @@ export type SessionData = {
   dbUserId?: number;
   /** Ожидаем от пользователя геолокацию или ввод часового пояса */
   awaitingTimezone?: boolean;
+  /** ID фидбэка, на который админ собирается ответить (только в админ-боте) */
+  feedbackReplyId?: number;
 };
 
 /** Базовый контекст с сессией */
@@ -141,4 +143,8 @@ export type CallbackAction =
   | { type: 'analytics'; period: '7d' | '30d' | '90d' | 'all' }
   | { type: 'back_to_menu' }
   | { type: 'save_day' }
+  | { type: 'feedback_confirm' }
+  | { type: 'feedback_edit' }
+  | { type: 'feedback_admin_reply'; feedbackId: number }
+  | { type: 'feedback_admin_seen'; feedbackId: number }
   | { type: 'noop' };

@@ -1,6 +1,8 @@
 import { createBot, setCommands } from './bot/index.js';
+import { createAdminBot } from './bot/admin/index.js';
 import { initDatabase, closeDatabase } from './db/index.js';
 import { startScheduler, stopScheduler } from './scheduler/cron.js';
+import { initFeedbackBots } from './services/feedbackTransport.js';
 
 /**
  * Точка входа приложения
@@ -32,17 +34,40 @@ const main = async (): Promise<void> => {
   await setCommands(bot);
   console.log('📋 Команды бота установлены');
 
+  // Опциональный админ-бот для уведомлений о фидбэке. Если ADMIN_BOT_TOKEN
+  // не задан — основной бот работает как раньше, /feedback всё равно
+  // принимает сообщения и сохраняет их в БД, просто без push'а админу.
+  const adminToken = process.env.ADMIN_BOT_TOKEN;
+  const adminChatIdRaw = process.env.ADMIN_CHAT_ID;
+  const adminChatId = adminChatIdRaw ? parseInt(adminChatIdRaw, 10) : NaN;
+  const adminBot =
+    adminToken && Number.isFinite(adminChatId)
+      ? createAdminBot(adminToken, adminChatId)
+      : null;
+
+  if (adminBot) {
+    console.log('🔐 Админ-бот сконфигурен');
+  } else {
+    console.warn(
+      '⚠️ ADMIN_BOT_TOKEN или ADMIN_CHAT_ID не заданы — фидбэк будет ' +
+        'сохраняться в БД, но не отправляться админу'
+    );
+  }
+
+  initFeedbackBots(bot, adminBot, Number.isFinite(adminChatId) ? adminChatId : null);
+
   // Запускаем планировщик напоминаний
   startScheduler(bot);
 
   // Обработка graceful shutdown
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`\n📴 Получен сигнал ${signal}, завершение работы...`);
-    
+
     stopScheduler();
     bot.stop();
+    if (adminBot) adminBot.stop();
     await closeDatabase();
-    
+
     console.log('👋 Бот остановлен');
     process.exit(0);
   };
@@ -53,8 +78,13 @@ const main = async (): Promise<void> => {
   // Запускаем бота
   console.log('✅ Бот запущен и готов к работе!');
   console.log('   Нажми Ctrl+C для остановки\n');
-  
-  await bot.start();
+
+  // Запускаем оба бота параллельно. Promise.all ждёт пока ОБА завершатся
+  // (что произойдёт только при shutdown), bot.start() блокирует.
+  await Promise.all([
+    bot.start(),
+    ...(adminBot ? [adminBot.start()] : []),
+  ]);
 };
 
 // Запуск

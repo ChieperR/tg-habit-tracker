@@ -11,10 +11,12 @@ import { handleAdmin } from './commands/admin.js';
 import { handleAnalytics } from './commands/analytics.js';
 import { handleFunnel } from './commands/funnel.js';
 import { handleChangelog } from './commands/changelog.js';
+import { handleFeedback } from './commands/feedback.js';
 import { handleCallback } from './callbacks/index.js';
 import { handleTimezoneInput } from './handlers/timezoneInput.js';
 import {
   addHabitConversation,
+  feedbackConversation,
   setMorningTimeConversation,
   setEveningTimeConversation,
   setTimezoneConversation,
@@ -46,6 +48,7 @@ export const createBot = (token: string): Bot<BotContext> => {
   // Middleware: conversations
   bot.use(conversations());
   bot.use(createConversation(addHabitConversation, 'addHabit'));
+  bot.use(createConversation(feedbackConversation, 'feedback'));
   bot.use(createConversation(setMorningTimeConversation, 'setMorningTime'));
   bot.use(createConversation(setEveningTimeConversation, 'setEveningTime'));
   bot.use(createConversation(setTimezoneConversation, 'setTimezone'));
@@ -57,6 +60,7 @@ export const createBot = (token: string): Bot<BotContext> => {
   bot.command('habits', handleHabits);
   bot.command('stats', handleStats);
   bot.command('settings', handleSettings);
+  bot.command('feedback', handleFeedback);
   
   // Команды администратора
   bot.command('admin', handleAdmin);
@@ -101,6 +105,7 @@ export const setCommands = async (bot: Bot<BotContext>): Promise<void> => {
     { command: 'habits', description: '📝 Мои привычки' },
     { command: 'stats', description: '📊 Статистика' },
     { command: 'settings', description: '⚙️ Настройки' },
+    { command: 'feedback', description: '💬 Оставить фидбэк' },
     { command: 'help', description: '📖 Справка' },
   ]);
 };
