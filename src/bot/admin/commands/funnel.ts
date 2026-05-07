@@ -1,17 +1,12 @@
-import { BotContext } from '../../types/index.js';
-import { ADMIN_TELEGRAM_ID } from '../../config.js';
-import { getActivationFunnel, getHabitHealthMetrics, getReminderEffectiveness, getStreakBreaks, getBotBlockedCount } from '../../services/analyticsService.js';
+import { BotContext } from '../../../types/index.js';
+import { getActivationFunnel, getHabitHealthMetrics, getReminderEffectiveness, getStreakBreaks, getBotBlockedCount } from '../../../services/analyticsService.js';
 
 /**
- * Обработчик команды /funnel — воронка активации + метрики привычек (только для администратора)
+ * Обработчик команды /funnel — воронка активации + метрики привычек.
+ * Зарегистрирована в админ-боте, доступ ограничен middleware-guard.
+ * @module bot/admin/commands/funnel
  */
 export const handleFunnel = async (ctx: BotContext): Promise<void> => {
-  const fromId = ctx.from?.id;
-
-  if (!fromId || fromId !== ADMIN_TELEGRAM_ID) {
-    return;
-  }
-
   try {
     const [funnel, habitHealth, reminderEff, streakBreaks, botBlocked] = await Promise.all([
       getActivationFunnel(),

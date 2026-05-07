@@ -1,5 +1,5 @@
 import { createBot, setCommands } from './bot/index.js';
-import { createAdminBot } from './bot/admin/index.js';
+import { createAdminBot, setAdminCommands } from './bot/admin/index.js';
 import { initDatabase, closeDatabase } from './db/index.js';
 import { startScheduler, stopScheduler } from './scheduler/cron.js';
 import { initFeedbackBots } from './services/feedbackTransport.js';
@@ -46,7 +46,8 @@ const main = async (): Promise<void> => {
       : null;
 
   if (adminBot) {
-    console.log('🔐 Админ-бот сконфигурен');
+    await setAdminCommands(adminBot);
+    console.log('🔐 Админ-бот сконфигурен, команды установлены');
   } else {
     console.warn(
       '⚠️ ADMIN_BOT_TOKEN или ADMIN_CHAT_ID не заданы — фидбэк будет ' +
@@ -55,6 +56,17 @@ const main = async (): Promise<void> => {
   }
 
   initFeedbackBots(bot, adminBot, Number.isFinite(adminChatId) ? adminChatId : null);
+
+  // Чистим webhook + накопленные updates перед стартом polling. Если
+  // предыдущий процесс упал/был убит, у Telegram остаётся stale getUpdates
+  // сессия — без deleteWebhook новый процесс получит updates только через
+  // 30-60 секунд. drop_pending_updates=true дополнительно отбрасывает
+  // накопившуюся очередь, чтобы при рестарте бот не отвечал пачкой на всё
+  // что копилось пока был оффлайн.
+  await bot.api.deleteWebhook({ drop_pending_updates: true });
+  if (adminBot) {
+    await adminBot.api.deleteWebhook({ drop_pending_updates: true });
+  }
 
   // Запускаем планировщик напоминаний
   startScheduler(bot);

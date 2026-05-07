@@ -1,13 +1,11 @@
 import { BotContext } from '../../types/index.js';
 import { parseCallback } from '../../utils/callback.js';
 import { safeAnswerCallback } from '../../utils/telegram.js';
-import { ADMIN_TELEGRAM_ID } from '../../config.js';
 import { showHabitsList } from '../commands/habits.js';
 import { showStats } from '../commands/stats.js';
 import { showWeekly, getPrevWeekStart, getNextWeekStart } from '../commands/weekly.js';
 import { showSettings } from '../commands/settings.js';
 import { handleHelp } from '../commands/help.js';
-import { showAnalytics } from '../commands/analytics.js';
 import { handleHabitToggle, handleHabitDeletePrompt, handleHabitConfirmDelete, handleHabitDetails, handleHabitReminderRemove } from './handlers/habitCallbacks.js';
 import { handleSettingsCallback } from './handlers/settingsCallbacks.js';
 import { showMainMenu } from './handlers/navigationCallbacks.js';
@@ -124,11 +122,7 @@ export const handleCallback = async (ctx: BotContext): Promise<void> => {
         break;
 
       case 'analytics':
-        if (ctx.from?.id !== ADMIN_TELEGRAM_ID) {
-          await ctx.answerCallbackQuery();
-          break;
-        }
-        await showAnalytics(ctx, action.period);
+        // analytics обрабатывается в админ-боте; в основном боте — silent ignore
         await ctx.answerCallbackQuery();
         break;
 

@@ -1,9 +1,13 @@
 import { Bot, session } from 'grammy';
+import type { BotCommand } from 'grammy/types';
 import { conversations, createConversation } from '@grammyjs/conversations';
 import { BotContext, SessionData } from '../../types/index.js';
 import { parseCallback } from '../../utils/callback.js';
 import { markFeedbackSeen } from '../../services/feedbackService.js';
 import { adminReplyConversation } from './conversations/adminReply.js';
+import { handleAdmin } from './commands/admin.js';
+import { handleAnalytics, showAnalytics } from './commands/analytics.js';
+import { handleFunnel } from './commands/funnel.js';
 
 /**
  * Админ-бот (`@adm_SleekHabitTracker_Bot`) — закрытый бот для одного человека.
@@ -44,10 +48,18 @@ export const createAdminBot = (
 
   bot.command('start', async (ctx) => {
     await ctx.reply(
-      '👋 Это админ-бот для habit-tracker. Сюда приходят уведомления о фидбэке. ' +
-        'Действия — через inline-кнопки на сообщениях.'
+      '👋 Админ-бот habit-tracker. Доступные команды:\n' +
+        '/admin — статистика бота\n' +
+        '/analytics — аналитика по периодам\n' +
+        '/funnel — воронка активации + здоровье привычек\n\n' +
+        'Также сюда приходят уведомления о фидбэке с inline-кнопками.'
     );
   });
+
+  // Админские команды (раньше жили в основном боте, перенесены в админ-бот)
+  bot.command('admin', handleAdmin);
+  bot.command('analytics', handleAnalytics);
+  bot.command('funnel', handleFunnel);
 
   bot.on('callback_query:data', async (ctx) => {
     const data = ctx.callbackQuery.data;
@@ -60,6 +72,12 @@ export const createAdminBot = (
     if (action.type === 'feedback_admin_reply') {
       await ctx.answerCallbackQuery();
       await ctx.conversation.enter('adminReply', action.feedbackId);
+      return;
+    }
+
+    if (action.type === 'analytics') {
+      await showAnalytics(ctx, action.period);
+      await ctx.answerCallbackQuery();
       return;
     }
 
@@ -91,4 +109,19 @@ export const createAdminBot = (
   });
 
   return bot;
+};
+
+/**
+ * Список админ-команд для setMyCommands. Показываются в выпадающем меню
+ * админ-бота (его видит только админ — остальные через guard).
+ */
+export const ADMIN_BOT_COMMANDS: BotCommand[] = [
+  { command: 'admin', description: '📊 Статистика бота' },
+  { command: 'analytics', description: '📈 Аналитика по периодам' },
+  { command: 'funnel', description: '🎯 Воронка + здоровье привычек' },
+];
+
+/** Применяет admin-команды к меню бота. */
+export const setAdminCommands = async (bot: Bot<BotContext>): Promise<void> => {
+  await bot.api.setMyCommands(ADMIN_BOT_COMMANDS);
 };
