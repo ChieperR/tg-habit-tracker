@@ -161,20 +161,31 @@ export const feedbackConversation = async (
       continue;
     }
 
-    // confirm — сохраняем и шлём админу
-    const feedback = await conversation.external(() =>
-      createFeedback({
+    // confirm — сохраняем и шлём админу. Все side-effects запихиваем в ОДИН
+    // `conversation.external`: grammy/conversations не разрешает nested или
+    // concurrent external-calls (replay-engine ругается «Cannot perform
+    // nested or concurrent calls to external»). Исключения внутри гасим,
+    // чтобы провал notify/track не сломал юзеру UX.
+    const feedback = await conversation.external(async () => {
+      const created = await createFeedback({
         userId: user.id,
         text: collected.text,
         photoFileId: collected.photoFileId,
-      })
-    );
+      });
+      try {
+        await trackEvent(user.id, 'feedback_submitted', { feedbackId: created.id });
+      } catch (e) {
+        console.error('[feedback] trackEvent failed:', e);
+      }
+      try {
+        await notifyAdminAboutFeedback(created.id);
+      } catch (e) {
+        console.error('[feedback] notifyAdminAboutFeedback failed:', e);
+      }
+      return created;
+    });
 
-    void conversation.external(() =>
-      trackEvent(user.id, 'feedback_submitted', { feedbackId: feedback.id })
-    );
-
-    void conversation.external(() => notifyAdminAboutFeedback(feedback.id));
+    void feedback; // переменная остаётся для возможных будущих расширений
 
     await ctx.reply(
       '✅ Спасибо! Фидбэк отправлен.\n\n' +
