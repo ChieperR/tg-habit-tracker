@@ -1,5 +1,5 @@
 import { createBot, setCommands } from './bot/index.js';
-import { createAdminBot } from './bot/admin/index.js';
+import { createAdminBot, setAdminCommands } from './bot/admin/index.js';
 import { initDatabase, closeDatabase } from './db/index.js';
 import { startScheduler, stopScheduler } from './scheduler/cron.js';
 import { initFeedbackBots } from './services/feedbackTransport.js';
@@ -46,7 +46,8 @@ const main = async (): Promise<void> => {
       : null;
 
   if (adminBot) {
-    console.log('🔐 Админ-бот сконфигурен');
+    await setAdminCommands(adminBot);
+    console.log('🔐 Админ-бот сконфигурен, команды установлены');
   } else {
     console.warn(
       '⚠️ ADMIN_BOT_TOKEN или ADMIN_CHAT_ID не заданы — фидбэк будет ' +

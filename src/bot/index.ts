@@ -7,9 +7,6 @@ import { handleHabits } from './commands/habits.js';
 import { handleStats } from './commands/stats.js';
 import { handleSettings } from './commands/settings.js';
 import { handleDaily } from './commands/daily.js';
-import { handleAdmin } from './commands/admin.js';
-import { handleAnalytics } from './commands/analytics.js';
-import { handleFunnel } from './commands/funnel.js';
 import { handleChangelog } from './commands/changelog.js';
 import { handleFeedback } from './commands/feedback.js';
 import { handleCallback } from './callbacks/index.js';
@@ -42,6 +39,18 @@ const initialSessionData = (): SessionData => ({});
 export const createBot = (token: string): Bot<BotContext> => {
   const bot = new Bot<BotContext>(token);
 
+  // Фильтр устаревших сообщений: если бот лежал и при старте получает лавину
+  // накопленных updates, всё что старше 5 минут — silent ignore. Callback'и
+  // не фильтруем — они идемпотентны и несут дату действия в callback_data,
+  // повторная обработка не ломает данные.
+  bot.use(async (ctx, next) => {
+    const msgDate = ctx.message?.date;
+    if (msgDate && Date.now() / 1000 - msgDate > 300) {
+      return;
+    }
+    await next();
+  });
+
   // Middleware: сессии
   bot.use(session({ initial: initialSessionData }));
 
@@ -61,11 +70,6 @@ export const createBot = (token: string): Bot<BotContext> => {
   bot.command('stats', handleStats);
   bot.command('settings', handleSettings);
   bot.command('feedback', handleFeedback);
-  
-  // Команды администратора
-  bot.command('admin', handleAdmin);
-  bot.command('analytics', handleAnalytics);
-  bot.command('funnel', handleFunnel);
 
   // Changelog (не в setMyCommands — доступна только через баннер)
   bot.command('changelog', handleChangelog);

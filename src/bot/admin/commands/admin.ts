@@ -1,11 +1,11 @@
-import { BotContext } from '../../types/index.js';
-import { ADMIN_TELEGRAM_ID } from '../../config.js';
-import { getBotStats } from '../../services/adminService.js';
-import { getUserSegments } from '../../services/analyticsService.js';
+import { BotContext } from '../../../types/index.js';
+import { getBotStats } from '../../../services/adminService.js';
+import { getUserSegments } from '../../../services/analyticsService.js';
 
 /**
- * Обработчик команды /admin — статистика бота (только для администратора)
- * @module bot/commands/admin
+ * Обработчик команды /admin — статистика бота. Команда зарегистрирована
+ * в админ-боте, доступ ограничен middleware-guard в `bot/admin/index.ts`.
+ * @module bot/admin/commands/admin
  */
 
 /**
@@ -42,18 +42,10 @@ const formatAdminMessage = (stats: Awaited<ReturnType<typeof getBotStats>>): str
 };
 
 /**
- * Обработчик команды /admin
- * Доступна только администратору (ADMIN_TELEGRAM_ID)
+ * Обработчик команды /admin (админ-бот, guard в middleware)
  * @param ctx - Контекст бота
  */
 export const handleAdmin = async (ctx: BotContext): Promise<void> => {
-  const fromId = ctx.from?.id;
-
-  if (!fromId || fromId !== ADMIN_TELEGRAM_ID) {
-    // Silently ignore — не раскрываем существование команды
-    return;
-  }
-
   try {
     const [stats, segments] = await Promise.all([getBotStats(), getUserSegments()]);
     let message = formatAdminMessage(stats);

@@ -1,13 +1,13 @@
 import { InlineKeyboard } from 'grammy';
-import { BotContext } from '../../types/index.js';
-import { ADMIN_TELEGRAM_ID } from '../../config.js';
-import { getAnalytics, getAnalyticsForRange, AnalyticsPeriod } from '../../services/analyticsService.js';
-import { serializeCallback } from '../../utils/callback.js';
-import { safeEditMessage } from '../../utils/telegram.js';
+import { BotContext } from '../../../types/index.js';
+import { getAnalytics, getAnalyticsForRange, AnalyticsPeriod } from '../../../services/analyticsService.js';
+import { serializeCallback } from '../../../utils/callback.js';
+import { safeEditMessage } from '../../../utils/telegram.js';
 
 /**
- * Команда /analytics — аналитика бота (только для администратора)
- * @module bot/commands/analytics
+ * Команда /analytics — аналитика бота. Зарегистрирована в админ-боте,
+ * доступ ограничен middleware-guard.
+ * @module bot/admin/commands/analytics
  */
 
 /**
@@ -128,8 +128,7 @@ const parseRuDate = (d: string): string => {
 };
 
 /**
- * Обработчик команды /analytics
- * Доступна только администратору (ADMIN_TELEGRAM_ID)
+ * Обработчик команды /analytics (админ-бот, guard в middleware).
  *
  * Форматы:
  * - `/analytics` — стандартный вид (7 дней + кнопки)
@@ -137,12 +136,6 @@ const parseRuDate = (d: string): string => {
  * @param ctx - Контекст бота
  */
 export const handleAnalytics = async (ctx: BotContext): Promise<void> => {
-  const fromId = ctx.from?.id;
-
-  if (!fromId || fromId !== ADMIN_TELEGRAM_ID) {
-    return;
-  }
-
   try {
     const args = typeof ctx.match === 'string' ? ctx.match.trim() : '';
     const parts = args.split(/\s+/).filter(Boolean);

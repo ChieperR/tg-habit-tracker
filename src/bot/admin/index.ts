@@ -1,9 +1,14 @@
 import { Bot, session } from 'grammy';
+import type { BotCommand } from 'grammy/types';
 import { conversations, createConversation } from '@grammyjs/conversations';
 import { BotContext, SessionData } from '../../types/index.js';
 import { parseCallback } from '../../utils/callback.js';
+import { safeAnswerCallback } from '../../utils/telegram.js';
 import { markFeedbackSeen } from '../../services/feedbackService.js';
 import { adminReplyConversation } from './conversations/adminReply.js';
+import { handleAdmin } from './commands/admin.js';
+import { handleAnalytics, showAnalytics } from './commands/analytics.js';
+import { handleFunnel } from './commands/funnel.js';
 
 /**
  * Админ-бот (`@adm_SleekHabitTracker_Bot`) — закрытый бот для одного человека.
@@ -17,6 +22,16 @@ import { adminReplyConversation } from './conversations/adminReply.js';
  */
 
 const initialSessionData = (): SessionData => ({});
+
+/**
+ * Список админ-команд для setMyCommands. Показываются в выпадающем меню
+ * админ-бота (его видит только админ — остальные через guard).
+ */
+export const ADMIN_BOT_COMMANDS: BotCommand[] = [
+  { command: 'admin', description: '📊 Статистика бота' },
+  { command: 'analytics', description: '📈 Аналитика по периодам' },
+  { command: 'funnel', description: '🎯 Воронка + здоровье привычек' },
+];
 
 /**
  * Создаёт инстанс админ-бота.
@@ -38,34 +53,57 @@ export const createAdminBot = (
     await next();
   });
 
+  // Фильтр устаревших сообщений (см. createBot — тот же мотив).
+  bot.use(async (ctx, next) => {
+    const msgDate = ctx.message?.date;
+    if (msgDate && Date.now() / 1000 - msgDate > 300) {
+      return;
+    }
+    await next();
+  });
+
   bot.use(session({ initial: initialSessionData }));
   bot.use(conversations());
   bot.use(createConversation(adminReplyConversation, 'adminReply'));
 
+  // /start text генерируется из ADMIN_BOT_COMMANDS — единственный источник
+  // истины, при добавлении новой команды не нужно править два места.
+  const startText =
+    '👋 Админ-бот habit-tracker. Доступные команды:\n' +
+    ADMIN_BOT_COMMANDS.map((c) => `/${c.command} — ${c.description}`).join('\n') +
+    '\n\nТакже сюда приходят уведомления о фидбэке с inline-кнопками.';
   bot.command('start', async (ctx) => {
-    await ctx.reply(
-      '👋 Это админ-бот для habit-tracker. Сюда приходят уведомления о фидбэке. ' +
-        'Действия — через inline-кнопки на сообщениях.'
-    );
+    await ctx.reply(startText);
   });
+
+  // Админские команды (раньше жили в основном боте, перенесены в админ-бот)
+  bot.command('admin', handleAdmin);
+  bot.command('analytics', handleAnalytics);
+  bot.command('funnel', handleFunnel);
 
   bot.on('callback_query:data', async (ctx) => {
     const data = ctx.callbackQuery.data;
     const action = parseCallback(data);
     if (!action) {
-      await ctx.answerCallbackQuery();
+      await safeAnswerCallback(ctx);
       return;
     }
 
     if (action.type === 'feedback_admin_reply') {
-      await ctx.answerCallbackQuery();
+      await safeAnswerCallback(ctx);
       await ctx.conversation.enter('adminReply', action.feedbackId);
+      return;
+    }
+
+    if (action.type === 'analytics') {
+      await showAnalytics(ctx, action.period);
+      await safeAnswerCallback(ctx);
       return;
     }
 
     if (action.type === 'feedback_admin_seen') {
       await markFeedbackSeen(action.feedbackId);
-      await ctx.answerCallbackQuery({ text: 'Отмечено как просмотренное' });
+      await safeAnswerCallback(ctx, 'Отмечено как просмотренное');
       // Снимаем кнопки с сообщения, чтобы не было соблазна жать ещё раз
       try {
         await ctx.editMessageReplyMarkup({ reply_markup: undefined });
@@ -83,7 +121,7 @@ export const createAdminBot = (
       return;
     }
 
-    await ctx.answerCallbackQuery();
+    await safeAnswerCallback(ctx);
   });
 
   bot.catch((err) => {
@@ -91,4 +129,9 @@ export const createAdminBot = (
   });
 
   return bot;
+};
+
+/** Применяет admin-команды к меню бота. */
+export const setAdminCommands = async (bot: Bot<BotContext>): Promise<void> => {
+  await bot.api.setMyCommands(ADMIN_BOT_COMMANDS);
 };
