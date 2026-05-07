@@ -279,6 +279,7 @@ npm run db:studio
 4. **New DB field** → edit `prisma/schema.prisma`, then run `npm run db:push` and `npm run db:generate`
 5. **New service** → `src/services/<name>Service.ts`, use `prisma` singleton
 6. **Date/timezone** → always use utils from `src/utils/date.ts`, never raw `new Date()` for user-facing logic
+7. **Changelog** → если изменение затрагивает юзера (новая фича, фикс заметного бага, изменение поведения которое юзер увидит) — добавь запись в `src/changelog.ts` с инкрементированным `id`, текущей датой и текстом без `*` `_` `` ` `` `[` `]`. `LATEST_CHANGELOG_ID` подтягивается автоматически. Не нужно для чисто внутренних изменений (рефакторинг, тесты, infra).
 
 ---
 

@@ -16,14 +16,39 @@ import {
 } from 'date-fns';
 
 /**
+ * Дефолтный часовой пояс в минутах (UTC+3, Москва) — используется когда
+ * у юзера ещё не настроен timezoneOffset.
+ */
+export const DEFAULT_TIMEZONE_OFFSET = 180;
+
+/**
  * Получает текущую дату в часовом поясе пользователя
  * @param timezoneOffset - Смещение часового пояса в минутах от UTC
  * @returns Date объект в часовом поясе пользователя
  */
-export const getNowInTimezone = (timezoneOffset: number = 180): Date => {
+export const getNowInTimezone = (timezoneOffset: number = DEFAULT_TIMEZONE_OFFSET): Date => {
   const now = new Date();
   const utc = now.getTime() + now.getTimezoneOffset() * 60000;
   return new Date(utc + timezoneOffset * 60000);
+};
+
+/**
+ * Минут с начала суток в timezone юзера (0..1439). Использует
+ * UTC-аксессоры на сдвинутой Date — это TZ-нейтрально, не зависит от
+ * часового пояса процесса.
+ *
+ * Используется и в установке reminderTime (`updateHabitReminder`), и в
+ * scheduler'е — чтобы оба тракта совпадали посимвольно и не было
+ * расхождений на пограничных минутах.
+ *
+ * @param timezoneOffset - Смещение часового пояса юзера в минутах от UTC
+ * @returns Минут с полуночи (0..1439)
+ */
+export const getCurrentMinutesInTimezone = (
+  timezoneOffset: number = DEFAULT_TIMEZONE_OFFSET
+): number => {
+  const userNow = getNowInTimezone(timezoneOffset);
+  return userNow.getUTCHours() * 60 + userNow.getUTCMinutes();
 };
 
 /**
@@ -31,7 +56,7 @@ export const getNowInTimezone = (timezoneOffset: number = 180): Date => {
  * @param timezoneOffset - Смещение часового пояса в минутах от UTC
  * @returns Строка даты в формате YYYY-MM-DD
  */
-export const getTodayDate = (timezoneOffset: number = 180): string => {
+export const getTodayDate = (timezoneOffset: number = DEFAULT_TIMEZONE_OFFSET): string => {
   return format(getNowInTimezone(timezoneOffset), 'yyyy-MM-dd');
 };
 
@@ -41,7 +66,10 @@ export const getTodayDate = (timezoneOffset: number = 180): string => {
  * @param timezoneOffset - Смещение часового пояса
  * @returns Строка даты в формате YYYY-MM-DD
  */
-export const getDateDaysAgo = (days: number, timezoneOffset: number = 180): string => {
+export const getDateDaysAgo = (
+  days: number,
+  timezoneOffset: number = DEFAULT_TIMEZONE_OFFSET
+): string => {
   const now = getNowInTimezone(timezoneOffset);
   return format(subDays(now, days), 'yyyy-MM-dd');
 };

@@ -2,7 +2,14 @@ import { Habit, HabitLog } from '@prisma/client';
 import { format } from 'date-fns';
 import { prisma } from '../db/index.js';
 import { CreateHabitInput, FrequencyType, HabitWithTodayStatus } from '../types/index.js';
-import { getTodayDate, isHabitDueToday, isHabitDueOnDate } from '../utils/date.js';
+import {
+  getTodayDate,
+  isHabitDueToday,
+  isHabitDueOnDate,
+  parseTime,
+  getCurrentMinutesInTimezone,
+  DEFAULT_TIMEZONE_OFFSET,
+} from '../utils/date.js';
 
 /**
  * Сервис для работы с привычками
@@ -270,7 +277,20 @@ export const getHabitLogs = async (
 };
 
 /**
- * Устанавливает время персонального напоминания для привычки
+ * Устанавливает время персонального напоминания для привычки.
+ *
+ * Поведение `lastHabitReminderDate` зависит от того, прошёл ли
+ * устанавливаемый момент в локальном дне юзера:
+ * - **Прошёл** → ставим `lastHabitReminderDate = today`, чтобы scheduler
+ *   не выпалил «catch-up» напоминание сразу же после установки. Следующее
+ *   настоящее напоминание придёт завтра в назначенное время.
+ * - **Ещё впереди** → ставим `lastHabitReminderDate = null` (а не
+ *   оставляем как есть), чтобы scheduler гарантированно сработал сегодня
+ *   в новое время — даже если до этого уже отправляли по старому
+ *   reminderTime.
+ *
+ * Если `time === null` (юзер удаляет напоминание) — чистим оба поля.
+ *
  * @param habitId - ID привычки
  * @param time - Время в формате HH:MM или null для удаления
  * @returns Обновлённая привычка
@@ -279,11 +299,35 @@ export const updateHabitReminder = async (
   habitId: number,
   time: string | null
 ): Promise<Habit> => {
+  if (time === null) {
+    return prisma.habit.update({
+      where: { id: habitId },
+      data: {
+        reminderTime: null,
+        lastHabitReminderDate: null,
+      },
+    });
+  }
+
+  const habit = await prisma.habit.findUnique({
+    where: { id: habitId },
+    include: { user: { select: { timezoneOffset: true } } },
+  });
+  if (!habit) {
+    throw new Error(`Habit ${habitId} not found`);
+  }
+
+  const timezoneOffset = habit.user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET;
+  const currentMinutes = getCurrentMinutesInTimezone(timezoneOffset);
+  const { hours, minutes } = parseTime(time);
+  const targetMinutes = hours * 60 + minutes;
+  const skipToday = currentMinutes >= targetMinutes;
+
   return prisma.habit.update({
     where: { id: habitId },
     data: {
       reminderTime: time,
-      lastHabitReminderDate: time === null ? null : undefined,
+      lastHabitReminderDate: skipToday ? getTodayDate(timezoneOffset) : null,
     },
   });
 };

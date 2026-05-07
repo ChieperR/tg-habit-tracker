@@ -3,7 +3,13 @@ import { prisma } from '../../db/index.js';
 import { BotContext } from '../../types/index.js';
 import { getHabitsWithReminders, getHabitLog } from '../habitService.js';
 import { getUsersForMorningReminder, getUsersForEveningReminder } from '../userService.js';
-import { parseTime, getTodayDate, isHabitDueToday } from '../../utils/date.js';
+import {
+  parseTime,
+  getTodayDate,
+  isHabitDueToday,
+  getCurrentMinutesInTimezone,
+  DEFAULT_TIMEZONE_OFFSET,
+} from '../../utils/date.js';
 import { serializeCallback } from '../../utils/callback.js';
 import { trackEvent } from '../analyticsService.js';
 import { sendMorningReminder, sendEveningReminder } from './senders.js';
@@ -21,10 +27,8 @@ export const checkAndSendReminders = async (
     ? await getUsersForMorningReminder()
     : await getUsersForEveningReminder();
 
-  const now = new Date();
-
   for (const user of users) {
-    const timezoneOffset = user.timezoneOffset ?? 180;
+    const timezoneOffset = user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET;
     const todayDate = getTodayDate(timezoneOffset);
 
     // Проверяем, отправляли ли уже сегодня
@@ -40,12 +44,7 @@ export const checkAndSendReminders = async (
       type === 'morning' ? user.morningTime : user.eveningTime
     );
 
-    const utcNow = now.getTime() + now.getTimezoneOffset() * 60000;
-    const userLocalTime = new Date(utcNow + timezoneOffset * 60000);
-    const userHours = userLocalTime.getHours();
-    const userMinutes = userLocalTime.getMinutes();
-
-    const currentTimeInMinutes = userHours * 60 + userMinutes;
+    const currentTimeInMinutes = getCurrentMinutesInTimezone(timezoneOffset);
     const targetTimeInMinutes = targetHours * 60 + targetMinutes;
 
     if (currentTimeInMinutes >= targetTimeInMinutes) {
@@ -80,10 +79,9 @@ export const checkAndSendHabitReminders = async (
   bot: Bot<BotContext>
 ): Promise<void> => {
   const habits = await getHabitsWithReminders();
-  const now = new Date();
 
   for (const habit of habits) {
-    const timezoneOffset = habit.user.timezoneOffset ?? 180;
+    const timezoneOffset = habit.user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET;
     const todayDate = getTodayDate(timezoneOffset);
 
     if (habit.lastHabitReminderDate === todayDate) {
@@ -112,9 +110,7 @@ export const checkAndSendHabitReminders = async (
 
     const { hours: targetHours, minutes: targetMinutes } = parseTime(habit.reminderTime);
 
-    const utcNow = now.getTime() + now.getTimezoneOffset() * 60000;
-    const userLocalTime = new Date(utcNow + timezoneOffset * 60000);
-    const currentTimeInMinutes = userLocalTime.getHours() * 60 + userLocalTime.getMinutes();
+    const currentTimeInMinutes = getCurrentMinutesInTimezone(timezoneOffset);
     const targetTimeInMinutes = targetHours * 60 + targetMinutes;
 
     if (currentTimeInMinutes >= targetTimeInMinutes) {
