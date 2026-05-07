@@ -134,7 +134,7 @@ export const sendReplyToUser = async (
     console.error('[feedback] userBot not initialized');
     return false;
   }
-  const text = `💬 Ответ на твой фидбэк №${feedbackId}:\n\n${replyText}`;
+  const text = `💬 Ответ на твой фидбэк:\n\n${replyText}`;
   try {
     await userBot.api.sendMessage(userTelegramId.toString(), text);
     return true;

@@ -177,8 +177,8 @@ export const feedbackConversation = async (
     void conversation.external(() => notifyAdminAboutFeedback(feedback.id));
 
     await ctx.reply(
-      `✅ Спасибо! Фидбэк №${feedback.id} отправлен.\n\n` +
-        'Если что-то нужно будет уточнить — Эмин ответит сюда же.'
+      '✅ Спасибо! Фидбэк отправлен.\n\n' +
+        'При необходимости, автор пришлёт ответ через этого же бота.'
     );
     return;
   }
