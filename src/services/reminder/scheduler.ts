@@ -14,6 +14,9 @@ import { serializeCallback } from '../../utils/callback.js';
 import { trackEvent } from '../analyticsService.js';
 import { sendMorningReminder, sendEveningReminder } from './senders.js';
 import { handleDeliveryError } from './delivery.js';
+import { buildPerHabitReminder } from './textBuilder.js';
+import { shouldAutoApplyFreeze, type StreakHabit, type StreakHabitLog, type StreakFreezeUsage } from '../streak/calculator.js';
+import { autoSpendFreeze } from '../streak/freezeService.js';
 
 /**
  * Проверяет и отправляет утренние/вечерние напоминания всем пользователям.
@@ -114,7 +117,16 @@ export const checkAndSendHabitReminders = async (
     const targetTimeInMinutes = targetHours * 60 + targetMinutes;
 
     if (currentTimeInMinutes >= targetTimeInMinutes) {
-      const message = `⏰ Пришло время: *${habit.emoji} ${habit.name}*`;
+      const message = await buildPerHabitReminder(habit.userId, timezoneOffset, {
+        id: habit.id,
+        name: habit.name,
+        emoji: habit.emoji,
+        frequencyType: habit.frequencyType,
+        frequencyDays: habit.frequencyDays,
+        weekdays: habit.weekdays,
+        createdAt: habit.createdAt,
+        isActive: habit.isActive,
+      });
       const keyboard = new InlineKeyboard()
         .text('✅ Выполнено', serializeCallback({ type: 'habit_toggle', habitId: habit.id, source: 'habit_reminder' }));
 
@@ -134,6 +146,72 @@ export const checkAndSendHabitReminders = async (
       await prisma.habit.update({
         where: { id: habit.id },
         data: { lastHabitReminderDate: todayDate },
+      });
+    }
+  }
+};
+
+/**
+ * Утренняя проверка freeze: для всех юзеров с активными привычками,
+ * у которых вчера были due-привычки и ни одна не выполнена и день не покрыт
+ * freeze, и в инвентаре есть freeze — автоматически списываем freeze.
+ *
+ * Идемпотентна: благодаря unique constraint `[userId, date]` на FreezeUsage,
+ * повторный вызов на тот же день ничего не делает.
+ *
+ * Вызывается из cron раз в день, в утреннее окно (например 04:00..05:00).
+ */
+export const autoApplyFreezesForMissedDays = async (): Promise<void> => {
+  const users = await prisma.user.findMany({
+    where: { freezeCount: { gt: 0 } },
+    select: {
+      id: true,
+      timezoneOffset: true,
+      habits: {
+        select: {
+          id: true,
+          frequencyType: true,
+          frequencyDays: true,
+          weekdays: true,
+          createdAt: true,
+          isActive: true,
+        },
+      },
+    },
+  });
+
+  for (const user of users) {
+    const timezoneOffset = user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET;
+    const todayDate = getTodayDate(timezoneOffset);
+
+    const [logs, freezeUsages] = await Promise.all([
+      prisma.habitLog.findMany({
+        where: { habit: { userId: user.id } },
+        select: { habitId: true, date: true, completed: true },
+      }),
+      prisma.freezeUsage.findMany({
+        where: { userId: user.id },
+        select: { date: true },
+      }),
+    ]);
+
+    const streakHabits: StreakHabit[] = user.habits;
+    const streakLogs: StreakHabitLog[] = logs;
+    const streakFreezes: StreakFreezeUsage[] = freezeUsages;
+
+    if (shouldAutoApplyFreeze(streakHabits, streakLogs, streakFreezes, todayDate)) {
+      // Считаем вчерашнюю дату
+      const yesterday = new Date(todayDate);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr =
+        yesterday.getFullYear() +
+        '-' +
+        String(yesterday.getMonth() + 1).padStart(2, '0') +
+        '-' +
+        String(yesterday.getDate()).padStart(2, '0');
+
+      await autoSpendFreeze(user.id, yesterdayStr).catch((err) => {
+        console.error(`[freeze-cron] Ошибка списания freeze для юзера ${user.id}:`, err);
       });
     }
   }

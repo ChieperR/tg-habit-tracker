@@ -5,6 +5,7 @@ import { createMainMenuKeyboard, createEveningChecklistKeyboard } from '../../bo
 import { getChangelogBanner } from '../../changelog.js';
 import { handleDeliveryError } from './delivery.js';
 import { formatScheduleText } from '../../utils/format.js';
+import { buildMorningReminder, buildEveningReminder } from './textBuilder.js';
 
 /**
  * Отправляет утреннее напоминание пользователю
@@ -23,15 +24,9 @@ export const sendMorningReminder = async (
     return false;
   }
 
-  let message = '🌅 *Доброе утро!*\n\n';
-  message += 'Вот твои привычки на сегодня:\n\n';
-
-  for (const habit of todayHabits) {
-    const scheduleText = formatScheduleText(habit);
-    message += `• ${habit.emoji} ${habit.name} _(${scheduleText})_\n`;
-  }
-
-  message += '\nУдачного дня! 🍀';
+  let message = await buildMorningReminder(userId, timezoneOffset, todayHabits, (habit) =>
+    formatScheduleText(habit)
+  );
 
   const banner = getChangelogBanner({ lastSeenChangelog }, timezoneOffset);
   if (banner) {
@@ -67,24 +62,13 @@ export const sendEveningReminder = async (
   lastSeenChangelog: number = 0
 ): Promise<boolean> => {
   const habits = await getUserHabitsWithTodayStatus(userId, timezoneOffset);
-  const todayHabits = habits.filter((h) => h.isDueToday);
+  const todayHabits: HabitWithTodayStatus[] = habits.filter((h) => h.isDueToday);
 
   if (todayHabits.length === 0) {
     return false;
   }
 
-  const allCompleted = todayHabits.every((h) => h.completedToday);
-
-  let message = '🌙 *Время подвести итоги дня!*\n\n';
-  if (allCompleted) {
-    message += '🎉 Все привычки выполнены! Так держать! 💪\n\n';
-  } else {
-    message += 'Отметь выполненные привычки:\n\n';
-  }
-  for (const habit of todayHabits) {
-    const status = habit.completedToday ? '✅' : '⬜';
-    message += `${status} ${habit.emoji} ${habit.name}\n`;
-  }
+  let message = await buildEveningReminder(userId, timezoneOffset, todayHabits);
 
   const banner = getChangelogBanner({ lastSeenChangelog }, timezoneOffset);
   if (banner) {

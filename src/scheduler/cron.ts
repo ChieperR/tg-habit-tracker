@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { Bot } from 'grammy';
 import { BotContext } from '../types/index.js';
-import { checkAndSendReminders, checkAndSendHabitReminders, resetBlockedTracking } from '../services/reminderService.js';
+import { checkAndSendReminders, checkAndSendHabitReminders, resetBlockedTracking, autoApplyFreezesForMissedDays } from '../services/reminderService.js';
 import { takeDailySnapshot, getDailyReport } from '../services/analyticsService.js';
 import { sendAdminMessage } from '../services/feedbackTransport.js';
 
@@ -59,6 +59,18 @@ export const startScheduler = (bot: Bot<BotContext>): void => {
       await sendAdminMessage(message, { parse_mode: 'Markdown' });
     } catch (error) {
       console.error('[analytics] Ошибка ежедневного снапшота:', error);
+    }
+  });
+
+  // Авто-применение freeze для всех юзеров с пропущенным вчерашним днём.
+  // Запускается раз в час — таким образом покрывает все часовые пояса
+  // (freeze применяется в UTC-час когда у юзера наступило новое утро).
+  // Идемпотентно благодаря unique constraint [userId, date] на FreezeUsage.
+  cron.schedule('0 * * * *', async () => {
+    try {
+      await autoApplyFreezesForMissedDays();
+    } catch (error) {
+      console.error('[freeze-cron] Ошибка авто-применения freeze:', error);
     }
   });
 

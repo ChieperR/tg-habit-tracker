@@ -8,6 +8,22 @@ import { trackEvent } from '../../../services/analyticsService.js';
 import { showHabitsList } from '../../commands/habits.js';
 import { createEveningChecklistKeyboard, createDeleteConfirmKeyboard, createHabitDetailsKeyboard, createHabitCreatedKeyboard } from '../../keyboards/index.js';
 import { formatScheduleText } from '../../../utils/format.js';
+import { prisma } from '../../../db/index.js';
+import { getTodayDate } from '../../../utils/date.js';
+import { detectAndSendMilestones } from '../../../services/streak/milestoneDelivery.js';
+import { tryEarnFreezes, refundFreeze } from '../../../services/streak/freezeService.js';
+import {
+  calculateOverallStreak,
+  type StreakHabit,
+  type StreakHabitLog,
+  type StreakFreezeUsage,
+} from '../../../services/streak/calculator.js';
+import {
+  FREEZE_EARNED_NOTIFICATION,
+  FREEZE_EARNED_SUFFIX_ONE,
+  FREEZE_EARNED_SUFFIX_TWO,
+} from '../../../data/reminderTexts.js';
+import { pickDeterministic, renderTemplate } from '../../../services/streak/textSelector.js';
 
 /**
  * Переключает статус выполнения привычки
@@ -30,6 +46,8 @@ export const handleHabitToggle = async (
   }
 
   const timezoneOffset = user.timezoneOffset ?? 0;
+  const todayDate = getTodayDate(timezoneOffset);
+  const targetDate = date ?? todayDate;
   const newStatus = await toggleHabitCompletion(habitId, timezoneOffset, date);
   const statusText = newStatus ? '✅ Выполнено!' : '⬜ Отменено';
 
@@ -39,6 +57,11 @@ export const handleHabitToggle = async (
   }
 
   await safeAnswerCallback(ctx, statusText);
+
+  // Streak-machinery: milestone delivery + freeze refund + freeze earn (только при отметке).
+  if (newStatus) {
+    void processStreakSideEffects(ctx, user.id, user.telegramId, habitId, targetDate, todayDate);
+  }
 
   if (source === 'habit_reminder') {
     const doneText = newStatus
@@ -93,6 +116,72 @@ export const handleHabitToggle = async (
   }
 
   await showHabitsList(ctx, date);
+};
+
+/**
+ * Side-effects после успешной отметки привычки:
+ * - milestone-поздравления (per-habit + overall streak)
+ * - refund freeze если backdated день был frozen
+ * - earn freeze если overall streak достиг очередного 5-day чекпоинта
+ *
+ * Fire-and-forget из основного callback'а — ошибки логируются, не блокируют UX.
+ */
+const processStreakSideEffects = async (
+  ctx: BotContext,
+  userId: number,
+  telegramId: bigint,
+  habitId: number,
+  targetDate: string,
+  todayDate: string
+): Promise<void> => {
+  try {
+    // Refund freeze, если backdated день был frozen
+    if (targetDate < todayDate) {
+      await refundFreeze(userId, targetDate);
+    }
+
+    // Пересчитываем overall streak и пробуем заработать freeze
+    const [habits, logs, freezeUsages] = await Promise.all([
+      prisma.habit.findMany({ where: { userId } }),
+      prisma.habitLog.findMany({
+        where: { habit: { userId } },
+        select: { habitId: true, date: true, completed: true },
+      }),
+      prisma.freezeUsage.findMany({
+        where: { userId },
+        select: { date: true },
+      }),
+    ]);
+
+    const streakHabits: StreakHabit[] = habits;
+    const streakLogs: StreakHabitLog[] = logs;
+    const streakFreezes: StreakFreezeUsage[] = freezeUsages;
+
+    const overallStreak = calculateOverallStreak(
+      streakHabits,
+      streakLogs,
+      streakFreezes,
+      todayDate
+    );
+
+    const earnResult = await tryEarnFreezes(userId, overallStreak);
+    if (earnResult.kind === 'earned') {
+      const seed = `${userId}:${todayDate}:freeze_earned:${earnResult.newCount}`;
+      const variant = pickDeterministic(FREEZE_EARNED_NOTIFICATION, seed);
+      const suffix = earnResult.newCount === 2 ? FREEZE_EARNED_SUFFIX_TWO : FREEZE_EARNED_SUFFIX_ONE;
+      const text = renderTemplate(variant.text, { suffix });
+      try {
+        await ctx.api.sendMessage(telegramId.toString(), text, { parse_mode: 'Markdown' });
+      } catch (err) {
+        console.error('[freeze] failed to send earned notification:', err);
+      }
+    }
+
+    // Milestone detection
+    await detectAndSendMilestones(ctx.api as never, telegramId, userId, habitId, todayDate);
+  } catch (err) {
+    console.error('[streak] processStreakSideEffects failed:', err);
+  }
 };
 
 /**
