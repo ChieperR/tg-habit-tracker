@@ -9,7 +9,7 @@ import { format, addDays, parse } from 'date-fns';
 import type { FrequencyType } from '../types/index.js';
 
 /** Состояние дня в недельном календаре */
-export type DayState = 'done' | 'missed' | 'off' | 'future';
+export type DayState = 'done' | 'missed' | 'frozen' | 'off' | 'future';
 
 /** Строка недели для одной привычки */
 export type HabitWeekRow = {
@@ -107,19 +107,25 @@ export const getWeekStatesForHabit = async (
 
   const firstCompletion = await getFirstCompletionDate(habitId);
   const monday = parse(weekStartMonday, 'yyyy-MM-dd', new Date());
-  const completedDates = await prisma.habitLog
-    .findMany({
+  const weekEndStr = format(addDays(monday, 6), 'yyyy-MM-dd');
+
+  const [completedLogs, freezeUsages] = await Promise.all([
+    prisma.habitLog.findMany({
       where: {
         habitId,
         completed: true,
-        date: {
-          gte: weekStartMonday,
-          lte: format(addDays(monday, 6), 'yyyy-MM-dd'),
-        },
+        date: { gte: weekStartMonday, lte: weekEndStr },
       },
       select: { date: true },
-    })
-    .then((logs) => new Set(logs.map((l) => l.date)));
+    }),
+    prisma.freezeUsage.findMany({
+      where: { userId: habit.userId, date: { gte: weekStartMonday, lte: weekEndStr } },
+      select: { date: true },
+    }),
+  ]);
+
+  const completedDates = new Set(completedLogs.map((l) => l.date));
+  const frozenDates = new Set(freezeUsages.map((f) => f.date));
 
   const habitCreatedDate = format(habit.createdAt, 'yyyy-MM-dd');
 
@@ -129,6 +135,7 @@ export const getWeekStatesForHabit = async (
     const dateStr = format(date, 'yyyy-MM-dd');
     const isFuture = dateStr > today;
     const completed = completedDates.has(dateStr);
+    const frozen = frozenDates.has(dateStr);
     const due = wasHabitDueOnDate(habit, dateStr, firstCompletion);
 
     if (isFuture) {
@@ -138,6 +145,9 @@ export const getWeekStatesForHabit = async (
     } else if (dateStr < habitCreatedDate) {
       // День до создания привычки — не могло быть выполнено
       states.push('off');
+    } else if (frozen && due) {
+      // День покрыт freeze — отображаем 🧊 (только если был due для этой привычки)
+      states.push('frozen');
     } else if (due) {
       states.push('missed');
     } else {
@@ -194,6 +204,8 @@ export const getWeeklyData = async (
             return '🟢';
           case 'missed':
             return '🔴';
+          case 'frozen':
+            return '🧊';
           case 'off':
             return '⏸️';
           case 'future':
@@ -207,7 +219,7 @@ export const getWeeklyData = async (
     }
   }
 
-  text += '🟢 — Сделал  🔴 — Пропустил  ⏸️ — Выходной  ⚪ — ещё не наступило';
+  text += '🟢 — Сделал  🔴 — Пропустил  🧊 — Заморожен  ⏸️ — Выходной  ⚪ — ещё не наступило';
 
   return { text, rows };
 };
