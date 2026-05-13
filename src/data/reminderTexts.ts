@@ -372,14 +372,13 @@ export type OverlayTrigger =
  * missed_2_days = реплика missed_3_days с заменой "три"→"два". Применяется на
  * лету при выборе текста для bucket "2 дня пропуска" (см. textSelector).
  */
-export function replaceThreeWithTwo(text: string): string {
-  return text
+export const replaceThreeWithTwo = (text: string): string =>
+  text
     .replace(/Три дня/g, 'Два дня')
     .replace(/три дня/g, 'два дня')
-    .replace(/Три дн/g, 'Два дн') // "Три дневный" maybe — unlikely
+    .replace(/Три дн/g, 'Два дн')
     .replace(/три дн/g, 'два дн')
     .replace(/Трое суток/g, 'Двое суток')
     .replace(/трое суток/g, 'двое суток')
     .replace(/3 дня/g, '2 дня')
     .replace(/3-дневн/g, '2-дневн');
-}

@@ -13,6 +13,7 @@ import { prisma } from '../../../db/index.js';
 import { getTodayDate } from '../../../utils/date.js';
 import { detectAndSendMilestones } from '../../../services/streak/milestoneDelivery.js';
 import { tryEarnFreezes, refundFreeze } from '../../../services/streak/freezeService.js';
+import { buildEveningReminder } from '../../../services/reminder/textBuilder.js';
 import {
   calculateOverallStreak,
   type StreakHabit,
@@ -97,18 +98,10 @@ export const handleHabitToggle = async (
   if (source === 'evening_reminder') {
     const habits = await getUserHabitsWithTodayStatus(user.id, timezoneOffset);
     const todayHabits = habits.filter((h) => h.isDueToday);
-    const allCompleted = todayHabits.every((h) => h.completedToday);
 
-    let message = '🌙 *Время подвести итоги дня!*\n\n';
-    if (allCompleted) {
-      message += '🎉 Все привычки выполнены! Так держать! 💪\n\n';
-    } else {
-      message += 'Отметь выполненные привычки:\n\n';
-    }
-    for (const h of todayHabits) {
-      const status = h.completedToday ? '✅' : '⬜';
-      message += `${status} ${h.emoji} ${escapeMarkdown(h.name)}\n`;
-    }
+    // Используем общий сборщик — тогда trigger'ы / overlay'и / варьируемые
+    // intro работают и здесь, а не только при первичной отправке reminder'а.
+    const message = await buildEveningReminder(user.id, timezoneOffset, todayHabits);
 
     await safeEditMessage(ctx, message, {
       parse_mode: 'Markdown',
@@ -122,9 +115,14 @@ export const handleHabitToggle = async (
 
 /**
  * Side-effects после успешной отметки привычки:
- * - milestone-поздравления (per-habit + overall streak)
  * - refund freeze если backdated день был frozen
+ * - milestone-поздравления (per-habit + overall streak)
  * - earn freeze если overall streak достиг очередного 5-day чекпоинта
+ *
+ * Порядок важен: refund сначала меняет state (freezeCount++, FreezeUsage
+ * удаляется), затем пересчёт стрика читает уже обновлённое состояние. Если
+ * вызывать в обратном порядке — earn/milestone могли бы триггериться на
+ * "старом" свежем стрике и пропустить retroactive milestone от backdated.
  *
  * Fire-and-forget из основного callback'а — ошибки логируются, не блокируют UX.
  */
@@ -173,7 +171,9 @@ const processStreakSideEffects = async (
       const suffix = earnResult.newCount === 2 ? FREEZE_EARNED_SUFFIX_TWO : FREEZE_EARNED_SUFFIX_ONE;
       const text = renderTemplate(variant.text, { suffix });
       try {
-        await ctx.api.sendMessage(telegramId.toString(), text, { parse_mode: 'Markdown' });
+        // Plain text — без parse_mode, чтобы не упасть если в будущем в шаблон
+        // добавят непарный * или _.
+        await ctx.api.sendMessage(telegramId.toString(), text);
       } catch (err) {
         console.error('[freeze] failed to send earned notification:', err);
       }

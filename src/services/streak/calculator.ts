@@ -59,11 +59,16 @@ const getHabitReferenceDate = (habit: StreakHabit, logs: StreakHabitLog[]): stri
 
 /**
  * Проверяет была ли привычка due в указанную дату.
+ *
+ * **Performance:** для горячих циклов передавать `referenceDate` явно, чтобы не
+ * пересчитывать его на каждой итерации (см. calculatePerHabitStreak и
+ * calculateOverallStreak — они precompute reference перед loop).
  */
 export const isHabitDue = (
   habit: StreakHabit,
   dateStr: string,
-  logs: StreakHabitLog[]
+  logs: StreakHabitLog[],
+  referenceDate?: string
 ): boolean => {
   // Привычка не существовала на эту дату — не due
   const habitCreatedDate = format(habit.createdAt, 'yyyy-MM-dd');
@@ -73,7 +78,7 @@ export const isHabitDue = (
     frequencyType: habit.frequencyType as 'daily' | 'interval' | 'weekdays',
     frequencyDays: habit.frequencyDays,
     weekdays: habit.weekdays,
-    referenceDate: getHabitReferenceDate(habit, logs),
+    referenceDate: referenceDate ?? getHabitReferenceDate(habit, logs),
     dateStr,
   });
 };
@@ -106,13 +111,14 @@ export const calculatePerHabitStreak = (
   const frozenDates = new Set(freezeUsages.map((f) => f.date));
 
   const habitCreatedDate = format(habit.createdAt, 'yyyy-MM-dd');
+  const referenceDate = getHabitReferenceDate(habit, logs);
   let streak = 0;
   let cursor = endDate;
 
   for (let i = 0; i < maxDays; i++) {
     if (cursor < habitCreatedDate) break;
 
-    if (isHabitDue(habit, cursor, logs)) {
+    if (isHabitDue(habit, cursor, logs, referenceDate)) {
       if (completedDates.has(cursor) || frozenDates.has(cursor)) {
         streak++;
       } else {
@@ -176,6 +182,12 @@ export const calculateOverallStreak = (
     endDate
   );
 
+  // Precompute reference dates для каждой привычки — не пересчитываем на
+  // каждой итерации loop'а.
+  const referenceDates = new Map(
+    activeHabits.map((h) => [h.id, getHabitReferenceDate(h, logs)] as const)
+  );
+
   let streak = 0;
   let cursor = endDate;
 
@@ -185,7 +197,9 @@ export const calculateOverallStreak = (
     if (frozenDates.has(cursor)) {
       streak++;
     } else {
-      const dueHabits = activeHabits.filter((h) => isHabitDue(h, cursor, logs));
+      const dueHabits = activeHabits.filter((h) =>
+        isHabitDue(h, cursor, logs, referenceDates.get(h.id))
+      );
       if (dueHabits.length === 0) {
         // Нейтральный день, не меняем streak.
       } else {

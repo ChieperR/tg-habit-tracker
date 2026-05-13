@@ -163,6 +163,9 @@ export const checkAndSendHabitReminders = async (
  * Вызывается из cron раз в день, в утреннее окно (например 04:00..05:00).
  */
 export const autoApplyFreezesForMissedDays = async (): Promise<void> => {
+  // Один запрос на всех юзеров с инвентарём — habits/logs/freezes выбираются
+  // через include, группируются в памяти. На 1000+ юзеров будет ~3 запроса
+  // вместо ~3000.
   const users = await prisma.user.findMany({
     where: { freezeCount: { gt: 0 } },
     select: {
@@ -176,7 +179,13 @@ export const autoApplyFreezesForMissedDays = async (): Promise<void> => {
           weekdays: true,
           createdAt: true,
           isActive: true,
+          logs: {
+            select: { habitId: true, date: true, completed: true },
+          },
         },
+      },
+      freezeUsages: {
+        select: { date: true },
       },
     },
   });
@@ -185,20 +194,16 @@ export const autoApplyFreezesForMissedDays = async (): Promise<void> => {
     const timezoneOffset = user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET;
     const todayDate = getTodayDate(timezoneOffset);
 
-    const [logs, freezeUsages] = await Promise.all([
-      prisma.habitLog.findMany({
-        where: { habit: { userId: user.id } },
-        select: { habitId: true, date: true, completed: true },
-      }),
-      prisma.freezeUsage.findMany({
-        where: { userId: user.id },
-        select: { date: true },
-      }),
-    ]);
-
-    const streakHabits: StreakHabit[] = user.habits;
-    const streakLogs: StreakHabitLog[] = logs;
-    const streakFreezes: StreakFreezeUsage[] = freezeUsages;
+    const streakHabits: StreakHabit[] = user.habits.map((h) => ({
+      id: h.id,
+      frequencyType: h.frequencyType,
+      frequencyDays: h.frequencyDays,
+      weekdays: h.weekdays,
+      createdAt: h.createdAt,
+      isActive: h.isActive,
+    }));
+    const streakLogs: StreakHabitLog[] = user.habits.flatMap((h) => h.logs);
+    const streakFreezes: StreakFreezeUsage[] = user.freezeUsages;
 
     if (shouldAutoApplyFreeze(streakHabits, streakLogs, streakFreezes, todayDate)) {
       const yesterdayStr = getPrevDate(todayDate);

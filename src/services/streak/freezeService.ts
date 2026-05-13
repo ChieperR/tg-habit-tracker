@@ -59,51 +59,56 @@ export const tryEarnFreezes = async (
   userId: number,
   currentOverallStreak: number
 ): Promise<EarnResult> => {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { freezeCount: true, lastFreezeEarnStreakDay: true },
-  });
-  if (!user) return { kind: 'no_earn' };
-
-  // Если стрик упал ниже последнего checkpoint'а — стрик был сломан (или
-  // restored на короче через freeze). Сбрасываем checkpoint в 0, чтобы новый
-  // цикл из 5 дней снова мог давать freeze.
-  let effectiveCheckpoint = user.lastFreezeEarnStreakDay;
-  if (currentOverallStreak < effectiveCheckpoint) {
-    effectiveCheckpoint = 0;
-    await prisma.user.update({
+  // Всё read-modify-write в одной транзакции, чтобы избежать race condition
+  // между параллельными callback'ами/cron'ом (SQLite single-writer обычно
+  // защищает, но Prisma может interleave на JS-уровне).
+  return prisma.$transaction(async (tx) => {
+    const user = await tx.user.findUnique({
       where: { id: userId },
-      data: { lastFreezeEarnStreakDay: 0 },
+      select: { freezeCount: true, lastFreezeEarnStreakDay: true },
     });
-  }
+    if (!user) return { kind: 'no_earn' } as EarnResult;
 
-  const nextCheckpoint = effectiveCheckpoint + FREEZE_EARN_INTERVAL_DAYS;
-  if (currentOverallStreak < nextCheckpoint) {
-    return { kind: 'no_earn' };
-  }
+    // Если стрик упал ниже последнего checkpoint'а — стрик был сломан.
+    // Сбрасываем checkpoint в 0, чтобы новый цикл из 5 дней снова мог
+    // давать freeze.
+    let effectiveCheckpoint = user.lastFreezeEarnStreakDay;
+    if (currentOverallStreak < effectiveCheckpoint) {
+      effectiveCheckpoint = 0;
+      await tx.user.update({
+        where: { id: userId },
+        data: { lastFreezeEarnStreakDay: 0 },
+      });
+    }
 
-  // Вычисляем последний достигнутый checkpoint (кратный 5 и не выше текущего streak'а).
-  const achievedCheckpoint =
-    Math.floor(currentOverallStreak / FREEZE_EARN_INTERVAL_DAYS) * FREEZE_EARN_INTERVAL_DAYS;
+    const nextCheckpoint = effectiveCheckpoint + FREEZE_EARN_INTERVAL_DAYS;
+    if (currentOverallStreak < nextCheckpoint) {
+      return { kind: 'no_earn' } as EarnResult;
+    }
 
-  if (user.freezeCount >= FREEZE_CAP) {
-    // На cap'е — обновляем checkpoint без инкремента и без уведомления.
-    await prisma.user.update({
+    // Последний достигнутый checkpoint (кратный 5 и не выше текущего streak'а).
+    const achievedCheckpoint =
+      Math.floor(currentOverallStreak / FREEZE_EARN_INTERVAL_DAYS) * FREEZE_EARN_INTERVAL_DAYS;
+
+    if (user.freezeCount >= FREEZE_CAP) {
+      // На cap'е — обновляем checkpoint без инкремента и без уведомления.
+      await tx.user.update({
+        where: { id: userId },
+        data: { lastFreezeEarnStreakDay: achievedCheckpoint },
+      });
+      return { kind: 'cap_reached', currentCount: user.freezeCount } as EarnResult;
+    }
+
+    const newCount = user.freezeCount + 1;
+    await tx.user.update({
       where: { id: userId },
-      data: { lastFreezeEarnStreakDay: achievedCheckpoint },
+      data: {
+        freezeCount: newCount,
+        lastFreezeEarnStreakDay: achievedCheckpoint,
+      },
     });
-    return { kind: 'cap_reached', currentCount: user.freezeCount };
-  }
-
-  const newCount = user.freezeCount + 1;
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      freezeCount: newCount,
-      lastFreezeEarnStreakDay: achievedCheckpoint,
-    },
+    return { kind: 'earned', newCount } as EarnResult;
   });
-  return { kind: 'earned', newCount };
 };
 
 /**
@@ -118,28 +123,29 @@ export const autoSpendFreeze = async (
   userId: number,
   date: string
 ): Promise<{ newCount: number } | null> => {
-  const existing = await prisma.freezeUsage.findUnique({
-    where: { userId_date: { userId, date } },
-  });
-  if (existing) return null;
+  // Read-modify-write в одной транзакции (avoid race с параллельным cron'ом).
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.freezeUsage.findUnique({
+      where: { userId_date: { userId, date } },
+    });
+    if (existing) return null;
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { freezeCount: true },
-  });
-  if (!user || user.freezeCount <= 0) return null;
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: { freezeCount: true },
+    });
+    if (!user || user.freezeCount <= 0) return null;
 
-  const newCount = user.freezeCount - 1;
-  await prisma.$transaction([
-    prisma.user.update({
+    const newCount = user.freezeCount - 1;
+    await tx.user.update({
       where: { id: userId },
       data: { freezeCount: newCount },
-    }),
-    prisma.freezeUsage.create({
+    });
+    await tx.freezeUsage.create({
       data: { userId, date, reason: 'auto_miss' },
-    }),
-  ]);
-  return { newCount };
+    });
+    return { newCount };
+  });
 };
 
 /**
@@ -149,33 +155,33 @@ export const autoSpendFreeze = async (
  * @returns true если refund произошёл (был frozen day и удалён), иначе false.
  */
 export const refundFreeze = async (userId: number, date: string): Promise<boolean> => {
-  const existing = await prisma.freezeUsage.findUnique({
-    where: { userId_date: { userId, date } },
-  });
-  if (!existing) return false;
-
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { freezeCount: true },
-  });
-  if (!user) return false;
-
-  // Cap при refund'е: если уже на cap'е — freeze не возвращается (теряется,
-  // но FreezeUsage всё равно удаляется, чтоб день стал ✅).
-  // На практике редкий кейс: cap=2, юзер сделал backdating дня, но недавно
-  // успел заработать новые freeze'ы. Так задизайнено — cap есть cap.
-  const newCount = Math.min(user.freezeCount + 1, FREEZE_CAP);
-
-  await prisma.$transaction([
-    prisma.freezeUsage.delete({
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.freezeUsage.findUnique({
       where: { userId_date: { userId, date } },
-    }),
-    prisma.user.update({
+    });
+    if (!existing) return false;
+
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: { freezeCount: true },
+    });
+    if (!user) return false;
+
+    // Cap при refund'е: если уже на cap'е — freeze не возвращается (теряется,
+    // но FreezeUsage всё равно удаляется, чтоб день стал ✅).
+    // На практике редкий кейс: cap=2, юзер сделал backdating дня, но недавно
+    // успел заработать новые freeze'ы. Так задизайнено — cap есть cap.
+    const newCount = Math.min(user.freezeCount + 1, FREEZE_CAP);
+
+    await tx.freezeUsage.delete({
+      where: { userId_date: { userId, date } },
+    });
+    await tx.user.update({
       where: { id: userId },
       data: { freezeCount: newCount },
-    }),
-  ]);
-  return true;
+    });
+    return true;
+  });
 };
 
 /**
