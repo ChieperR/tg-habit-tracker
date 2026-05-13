@@ -47,12 +47,29 @@ export const safeAnswerCallback = async (
     await ctx.answerCallbackQuery(text);
   } catch (error) {
     // Игнорируем ошибку устаревшего callback
-    const isOldQueryError = 
-      error instanceof Error && 
+    const isOldQueryError =
+      error instanceof Error &&
       error.message.includes('query is too old');
-    
+
     if (!isOldQueryError) {
       throw error;
     }
   }
+};
+
+/**
+ * Экранирует спецсимволы для классического Telegram Markdown (parse_mode='Markdown').
+ *
+ * Применяется к user-input строкам (habit.name и т.д.) когда они подставляются
+ * в шаблоны с `*bold*`, `_italic_`, `[link]`, `\`code\``. Без escape Telegram
+ * вернёт `Bad Request: can't parse entities` если у юзера в названии непарный
+ * `*` или `_`.
+ *
+ * Reserved для Markdown V1: `*`, `_`, `` ` ``, `[`.
+ *
+ * @param text - User input string
+ * @returns Строка с экранированными спецсимволами
+ */
+export const escapeMarkdown = (text: string): string => {
+  return text.replace(/([_*[\]`])/g, '\\$1');
 };

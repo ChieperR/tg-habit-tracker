@@ -8,6 +8,7 @@ import { trackEvent } from '../../../services/analyticsService.js';
 import { showHabitsList } from '../../commands/habits.js';
 import { createEveningChecklistKeyboard, createDeleteConfirmKeyboard, createHabitDetailsKeyboard, createHabitCreatedKeyboard } from '../../keyboards/index.js';
 import { formatScheduleText } from '../../../utils/format.js';
+import { escapeMarkdown } from '../../../utils/telegram.js';
 import { prisma } from '../../../db/index.js';
 import { getTodayDate } from '../../../utils/date.js';
 import { detectAndSendMilestones } from '../../../services/streak/milestoneDelivery.js';
@@ -64,9 +65,10 @@ export const handleHabitToggle = async (
   }
 
   if (source === 'habit_reminder') {
+    const safeName = escapeMarkdown(habit.name);
     const doneText = newStatus
-      ? `✅ *${habit.emoji} ${habit.name}* — выполнено!`
-      : `⏰ Пришло время: *${habit.emoji} ${habit.name}*`;
+      ? `✅ *${habit.emoji} ${safeName}* — выполнено!`
+      : `⏰ Пришло время: *${habit.emoji} ${safeName}*`;
 
     const toggleKeyboard = new InlineKeyboard().text(
       newStatus ? '↩️ Отменить' : '✅ Выполнено',
@@ -83,7 +85,7 @@ export const handleHabitToggle = async (
   if (source === 'habit_created') {
     const scheduleText = formatScheduleText(habit);
     const footerText = newStatus ? 'Отличное начало! 🔥' : 'Сегодня как раз нужно выполнить — отметь первый раз! ⬇️';
-    const message = `✅ *Привычка добавлена!*\n\n${habit.emoji} ${habit.name}\n📅 ${scheduleText}\n\n${footerText}`;
+    const message = `✅ *Привычка добавлена!*\n\n${habit.emoji} ${escapeMarkdown(habit.name)}\n📅 ${scheduleText}\n\n${footerText}`;
 
     await safeEditMessage(ctx, message, {
       parse_mode: 'Markdown',
@@ -105,7 +107,7 @@ export const handleHabitToggle = async (
     }
     for (const h of todayHabits) {
       const status = h.completedToday ? '✅' : '⬜';
-      message += `${status} ${h.emoji} ${h.name}\n`;
+      message += `${status} ${h.emoji} ${escapeMarkdown(h.name)}\n`;
     }
 
     await safeEditMessage(ctx, message, {
@@ -178,7 +180,7 @@ const processStreakSideEffects = async (
     }
 
     // Milestone detection
-    await detectAndSendMilestones(ctx.api as never, telegramId, userId, habitId, todayDate);
+    await detectAndSendMilestones(ctx.api, telegramId, userId, habitId, todayDate);
   } catch (err) {
     console.error('[streak] processStreakSideEffects failed:', err);
   }
@@ -200,7 +202,7 @@ export const handleHabitDeletePrompt = async (ctx: BotContext, habitId: number):
   const message = `
 🗑 *Удаление привычки*
 
-Ты уверен, что хочешь удалить привычку "${habit.emoji} ${habit.name}"?
+Ты уверен, что хочешь удалить привычку "${habit.emoji} ${escapeMarkdown(habit.name)}"?
 
 Это действие нельзя отменить.
   `.trim();
@@ -255,7 +257,7 @@ export const handleHabitDetails = async (ctx: BotContext, habitId: number): Prom
     : '⏰ Напоминание: _не установлено_';
 
   const message = `
-⚙️ *${habit.emoji} ${habit.name}*
+⚙️ *${habit.emoji} ${escapeMarkdown(habit.name)}*
 
 📅 Расписание: _${schedule}_
 ${reminderLine}
@@ -290,7 +292,7 @@ export const handleHabitReminderRemove = async (ctx: BotContext, habitId: number
 
   const schedule = formatScheduleText(habit);
   const message = `
-⚙️ *${habit.emoji} ${habit.name}*
+⚙️ *${habit.emoji} ${escapeMarkdown(habit.name)}*
 
 📅 Расписание: _${schedule}_
 ⏰ Напоминание: _не установлено_

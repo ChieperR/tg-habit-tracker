@@ -1,6 +1,7 @@
 import { prisma } from '../db/index.js';
 import { HabitStats, UserStats } from '../types/index.js';
 import { getLastNDays, getTodayDate } from '../utils/date.js';
+import { escapeMarkdown } from '../utils/telegram.js';
 import { format, subDays, startOfWeek, addDays, parse } from 'date-fns';
 import {
   calculateOverallStreak,
@@ -361,7 +362,7 @@ export const formatStatsMessage = async (
       habit.currentStreak < habit.maxStreak
         ? ` (Рекорд: ${habit.maxStreak})`
         : '';
-    message += `${habit.emoji} *${habit.name}*\n`;
+    message += `${habit.emoji} *${escapeMarkdown(habit.name)}*\n`;
     message += `   🔥 Стрик: ${habit.currentStreak} дн.${recordSuffix}\n`;
     message += `   📈 За 30 дней: ${habit.completionRate}%\n\n`;
   }

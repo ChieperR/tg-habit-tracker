@@ -17,9 +17,8 @@
  * @module services/streak/milestoneDelivery
  */
 
-import { Bot } from 'grammy';
+import type { Api, RawApi } from 'grammy';
 import { prisma } from '../../db/index.js';
-import { BotContext } from '../../types/index.js';
 import {
   PER_HABIT_MILESTONES,
   OVERALL_MILESTONES,
@@ -39,6 +38,7 @@ import {
   pickDeterministic,
   renderTemplate,
 } from './textSelector.js';
+import { escapeMarkdown } from '../../utils/telegram.js';
 import {
   recordMilestone,
   isFirstAchievementOfMilestone,
@@ -62,14 +62,14 @@ type TriggeredMilestone = {
  * milestone'ы (per-habit для этой habit, overall) и отправляет сводное
  * сообщение если что-то сработало.
  *
- * @param bot grammY бот для отправки сообщений
+ * @param api grammY Api инстанс (ctx.api или bot.api)
  * @param telegramId Telegram ID юзера (для sendMessage)
  * @param userId DB ID юзера
  * @param habitId DB ID привычки, которую только что отметили
  * @param todayDate Дата отметки (YYYY-MM-DD в timezone юзера)
  */
 export const detectAndSendMilestones = async (
-  bot: Bot<BotContext>,
+  api: Api<RawApi>,
   telegramId: bigint,
   userId: number,
   habitId: number,
@@ -145,11 +145,11 @@ export const detectAndSendMilestones = async (
   const effectIds = mergeEffectIds(triggered);
 
   try {
-    await bot.api.sendMessage(telegramId.toString(), message, {
+    await api.sendMessage(telegramId.toString(), message, {
       parse_mode: 'Markdown',
       // grammY API типизирован, message_effect_id передаётся через `other`
       ...(effectIds[0] ? { message_effect_id: effectIds[0] } : {}),
-    } as Parameters<typeof bot.api.sendMessage>[2]);
+    } as Parameters<typeof api.sendMessage>[2]);
   } catch (err) {
     console.error('[milestoneDelivery] failed to send congratulation:', err);
     return;
@@ -159,9 +159,9 @@ export const detectAndSendMilestones = async (
   // отдельным небольшим сообщением. Применимо к overall 30/60/100.
   if (effectIds.length > 1) {
     try {
-      await bot.api.sendMessage(telegramId.toString(), '❤️', {
+      await api.sendMessage(telegramId.toString(), '❤️', {
         message_effect_id: effectIds[1],
-      } as Parameters<typeof bot.api.sendMessage>[2]);
+      } as Parameters<typeof api.sendMessage>[2]);
     } catch (err) {
       console.error('[milestoneDelivery] failed to send secondary effect:', err);
     }
@@ -204,7 +204,7 @@ const renderMilestoneBlock = (
   const variant = pickDeterministic(pool, seed);
 
   let text = renderTemplate(variant.text, {
-    name: triggered.habitName ?? '',
+    name: escapeMarkdown(triggered.habitName ?? ''),
   });
 
   if (qualifiesForEarlyAdopterBonus(triggered.earlyAdopterRank)) {

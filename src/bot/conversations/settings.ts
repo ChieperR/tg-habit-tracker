@@ -9,7 +9,7 @@ import {
 import { createMainMenuKeyboard, createSettingsKeyboard, createHabitDetailsKeyboard } from '../keyboards/index.js';
 import { parseCallback } from '../../utils/callback.js';
 import { formatSettingsMessage } from '../commands/settings.js';
-import { safeEditMessage } from '../../utils/telegram.js';
+import { safeEditMessage, escapeMarkdown } from '../../utils/telegram.js';
 
 const removeKeyboard: { remove_keyboard: true } = { remove_keyboard: true };
 
@@ -250,7 +250,7 @@ export const setHabitReminderConversation = async (
   const currentLabel = currentTime ? `Текущее: *${currentTime}*\n\n` : '';
 
   await ctx.reply(
-    `⏰ *Напоминание для ${habit.emoji} ${habit.name}*\n\n${currentLabel}Введи время в формате ЧЧ:ММ\n(например: 07:30 или 9:00)`,
+    `⏰ *Напоминание для ${habit.emoji} ${escapeMarkdown(habit.name)}*\n\n${currentLabel}Введи время в формате ЧЧ:ММ\n(например: 07:30 или 9:00)`,
     { parse_mode: 'Markdown' }
   );
 
@@ -274,7 +274,7 @@ export const setHabitReminderConversation = async (
   await conversation.external(() => updateHabitReminder(habitId, normalizedTime));
 
   await ctx.reply(
-    `✅ Напоминание для ${habit.emoji} *${habit.name}* установлено на *${normalizedTime}*`,
+    `✅ Напоминание для ${habit.emoji} *${escapeMarkdown(habit.name)}* установлено на *${normalizedTime}*`,
     {
       parse_mode: 'Markdown',
       reply_markup: createHabitDetailsKeyboard({

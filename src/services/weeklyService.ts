@@ -5,6 +5,7 @@
 
 import { prisma } from '../db/index.js';
 import { getTodayDate, isHabitDueOnDate, getWeekStartMonday } from '../utils/date.js';
+import { escapeMarkdown } from '../utils/telegram.js';
 import { format, addDays, parse } from 'date-fns';
 import type { FrequencyType } from '../types/index.js';
 
@@ -214,7 +215,7 @@ export const getWeeklyData = async (
             return '⚪';
         }
       });
-      text += `${row.emoji} ${row.name} (${row.scheduleLabel})\n`;
+      text += `${row.emoji} ${escapeMarkdown(row.name)} (${row.scheduleLabel})\n`;
       text += '`' + symbols.join('') + '`\n\n';
     }
   }

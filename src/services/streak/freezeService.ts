@@ -65,7 +65,19 @@ export const tryEarnFreezes = async (
   });
   if (!user) return { kind: 'no_earn' };
 
-  const nextCheckpoint = user.lastFreezeEarnStreakDay + FREEZE_EARN_INTERVAL_DAYS;
+  // Если стрик упал ниже последнего checkpoint'а — стрик был сломан (или
+  // restored на короче через freeze). Сбрасываем checkpoint в 0, чтобы новый
+  // цикл из 5 дней снова мог давать freeze.
+  let effectiveCheckpoint = user.lastFreezeEarnStreakDay;
+  if (currentOverallStreak < effectiveCheckpoint) {
+    effectiveCheckpoint = 0;
+    await prisma.user.update({
+      where: { id: userId },
+      data: { lastFreezeEarnStreakDay: 0 },
+    });
+  }
+
+  const nextCheckpoint = effectiveCheckpoint + FREEZE_EARN_INTERVAL_DAYS;
   if (currentOverallStreak < nextCheckpoint) {
     return { kind: 'no_earn' };
   }

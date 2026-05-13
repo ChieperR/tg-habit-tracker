@@ -36,6 +36,7 @@ import {
   type StreakHabitLog,
   type StreakFreezeUsage,
 } from './calculator.js';
+import { getPrevDate } from '../../utils/date.js';
 
 /** Replacing-trigger (заменяет normal-обёртку). */
 export type ReplacingTrigger =
@@ -91,19 +92,9 @@ export type EvaluatorContext = {
   habitMetadata?: Map<number, { name: string; emoji: string }>;
 };
 
-/** Параметры для wasFrozen yesterday — нужно знать был ли вчера freeze.  */
+/** Параметры для wasFrozen yesterday — нужно знать был ли вчера freeze. */
 const wasFrozenYesterday = (ctx: EvaluatorContext): boolean => {
-  // Простая проверка через freezeUsages — есть ли вчерашняя дата.
-  // yesterday = today - 1 day
-  const todayD = new Date(ctx.todayDate);
-  const y = new Date(todayD);
-  y.setDate(y.getDate() - 1);
-  const yesterday =
-    y.getFullYear() +
-    '-' +
-    String(y.getMonth() + 1).padStart(2, '0') +
-    '-' +
-    String(y.getDate()).padStart(2, '0');
+  const yesterday = getPrevDate(ctx.todayDate);
   return ctx.freezeUsages.some((f) => f.date === yesterday);
 };
 
@@ -140,13 +131,14 @@ export const evaluateMorningTrigger = (ctx: EvaluatorContext): ReminderTrigger =
   }
 
   // Normal — собираем overlay'и
+  const yesterday = getPrevDate(ctx.todayDate);
   const overallStreak = calculateOverallStreak(
     ctx.habits,
     ctx.logs,
     ctx.freezeUsages,
     // Берём вчерашнюю дату для near_milestone проверки: streak уже сложился,
     // сегодня его можно нарастить ещё на 1.
-    yesterdayOf(ctx.todayDate)
+    yesterday
   );
   const overallNext = findNearMilestone(overallStreak, OVERALL_MILESTONES);
   if (overallNext !== null) {
@@ -155,12 +147,7 @@ export const evaluateMorningTrigger = (ctx: EvaluatorContext): ReminderTrigger =
 
   // Per-habit near milestone — только для due-сегодня привычек
   for (const habit of ctx.habits.filter((h) => h.isActive && isHabitDue(h, ctx.todayDate, ctx.logs))) {
-    const habitStreak = calculatePerHabitStreak(
-      habit,
-      ctx.logs,
-      ctx.freezeUsages,
-      yesterdayOf(ctx.todayDate)
-    );
+    const habitStreak = calculatePerHabitStreak(habit, ctx.logs, ctx.freezeUsages, yesterday);
     const habitNext = findNearMilestone(habitStreak, PER_HABIT_MILESTONES);
     if (habitNext !== null) {
       const meta = ctx.habitMetadata?.get(habit.id);
@@ -215,11 +202,12 @@ export const evaluateEveningTrigger = (ctx: EvaluatorContext): ReminderTrigger =
   }
 
   // Normal — overlay'и
+  const yesterday = getPrevDate(ctx.todayDate);
   const overallStreak = calculateOverallStreak(
     ctx.habits,
     ctx.logs,
     ctx.freezeUsages,
-    yesterdayOf(ctx.todayDate)
+    yesterday
   );
   const overallNext = findNearMilestone(overallStreak, OVERALL_MILESTONES);
   if (overallNext !== null) {
@@ -227,12 +215,7 @@ export const evaluateEveningTrigger = (ctx: EvaluatorContext): ReminderTrigger =
   }
 
   for (const habit of ctx.habits.filter((h) => h.isActive && isHabitDue(h, ctx.todayDate, ctx.logs))) {
-    const habitStreak = calculatePerHabitStreak(
-      habit,
-      ctx.logs,
-      ctx.freezeUsages,
-      yesterdayOf(ctx.todayDate)
-    );
+    const habitStreak = calculatePerHabitStreak(habit, ctx.logs, ctx.freezeUsages, yesterday);
     const habitNext = findNearMilestone(habitStreak, PER_HABIT_MILESTONES);
     if (habitNext !== null) {
       const meta = ctx.habitMetadata?.get(habit.id);
@@ -275,22 +258,9 @@ export const evaluatePerHabitTrigger = (
   todayDate: string
 ): PerHabitTrigger => {
   // Считаем missed до вчера (excluding today)
-  const yesterday = yesterdayOf(todayDate);
+  const yesterday = getPrevDate(todayDate);
   const missed = countHabitConsecutiveMissedDueDays(habit, logs, yesterday);
   if (missed <= 0) return 'normal';
   if (missed === 1) return 'habit_missed_1_day';
   return 'habit_missed_n_days';
-};
-
-/** Хелпер: дата на день назад в формате YYYY-MM-DD. */
-const yesterdayOf = (dateStr: string): string => {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() - 1);
-  return (
-    d.getFullYear() +
-    '-' +
-    String(d.getMonth() + 1).padStart(2, '0') +
-    '-' +
-    String(d.getDate()).padStart(2, '0')
-  );
 };

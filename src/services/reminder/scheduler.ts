@@ -9,6 +9,7 @@ import {
   isHabitDueToday,
   getCurrentMinutesInTimezone,
   DEFAULT_TIMEZONE_OFFSET,
+  getPrevDate,
 } from '../../utils/date.js';
 import { serializeCallback } from '../../utils/callback.js';
 import { trackEvent } from '../analyticsService.js';
@@ -200,16 +201,7 @@ export const autoApplyFreezesForMissedDays = async (): Promise<void> => {
     const streakFreezes: StreakFreezeUsage[] = freezeUsages;
 
     if (shouldAutoApplyFreeze(streakHabits, streakLogs, streakFreezes, todayDate)) {
-      // Считаем вчерашнюю дату
-      const yesterday = new Date(todayDate);
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr =
-        yesterday.getFullYear() +
-        '-' +
-        String(yesterday.getMonth() + 1).padStart(2, '0') +
-        '-' +
-        String(yesterday.getDate()).padStart(2, '0');
-
+      const yesterdayStr = getPrevDate(todayDate);
       await autoSpendFreeze(user.id, yesterdayStr).catch((err) => {
         console.error(`[freeze-cron] Ошибка списания freeze для юзера ${user.id}:`, err);
       });

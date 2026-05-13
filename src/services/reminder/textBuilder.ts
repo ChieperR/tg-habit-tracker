@@ -13,6 +13,7 @@
 import { prisma } from '../../db/index.js';
 import { HabitWithTodayStatus } from '../../types/index.js';
 import { getTodayDate } from '../../utils/date.js';
+import { escapeMarkdown } from '../../utils/telegram.js';
 import {
   NORMAL_MORNING_HEADERS,
   NORMAL_MORNING_FOOTERS,
@@ -127,7 +128,7 @@ const renderOverlay = (overlay: Overlay, seed: string): string => {
   if (overlay.kind === 'near_milestone_habit') {
     const variant = pickDeterministic(NEAR_MILESTONE_PER_HABIT, seed);
     return renderTemplate(variant.text, {
-      name: overlay.habitName,
+      name: escapeMarkdown(overlay.habitName),
       n: overlay.milestone,
     });
   }
@@ -284,10 +285,10 @@ export const buildMorningReminder = async (
     }
   }
 
-  // Список привычек
+  // Список привычек (habit.name экранируем — может содержать * _ ` [)
   for (const habit of todayHabits) {
     const line = formatHabitLine(habit);
-    message += `• ${habit.emoji} ${habit.name} _(${line})_\n`;
+    message += `• ${habit.emoji} ${escapeMarkdown(habit.name)} _(${line})_\n`;
   }
 
   message += '\n' + footerText;
@@ -330,7 +331,7 @@ export const buildEveningReminder = async (
 
   for (const habit of todayHabits) {
     const status = habit.completedToday ? '✅' : '⬜';
-    message += `${status} ${habit.emoji} ${habit.name}\n`;
+    message += `${status} ${habit.emoji} ${escapeMarkdown(habit.name)}\n`;
   }
 
   return message;
@@ -385,6 +386,6 @@ export const buildPerHabitReminder = async (
 
   return renderTemplate(variant.text, {
     emoji: habit.emoji,
-    name: habit.name,
+    name: escapeMarkdown(habit.name),
   });
 };
