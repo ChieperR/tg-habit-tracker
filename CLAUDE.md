@@ -11,6 +11,31 @@
 
 Users can create habits with flexible schedules (daily / every N days / specific weekdays), mark them as done via inline buttons, and view statistics (streaks, completion rate, weekly calendar). The bot sends morning and evening reminders at user-configured times, respecting each user's timezone.
 
+**Аудитория (важно для дизайн-решений):** бот развивается сам, по сарафанному радио. Основные пользователи — *незнакомые автору люди*, не близкий круг. Соответственно дизайн-решения должны строиться под массовую (хоть и небольшую) аудиторию: рассматриваются механики типа лиг/leaderboards/XP при условии что они не упираются в Goodhart's Law. НЕ дизайнить под «10-50 знакомых» — это устаревшее предположение.
+
+---
+
+## User-Visible Features Already Implemented
+
+Чек-лист «что уже есть» — чтобы не предлагать переделать существующее.
+
+- **Привычки**: создание (wizard с эмодзи, расписанием), редактирование, мягкое удаление (`isActive=false`)
+- **Расписание привычки**: daily / interval (раз в N дней) / weekdays (конкретные дни недели)
+- **Отметка выполнения**: inline-кнопка `✅` в `/habits`, в evening reminder (чеклист), в per-habit reminder, через weekly calendar
+- **Backdating отметок до 7 дней** (PR #4) — юзер может отметить за прошлый день через weekly calendar
+- **Стрики per-habit** (HabitLog + unique constraint `[habitId, date]`) — отображаются в `/stats`
+- **Три типа напоминаний** с РАЗНЫМИ ролями (не путать!):
+  - **Morning reminder**: обзор «вот привычки на сегодня», под ним меню (Мои привычки / Стата / Настройки) — **НЕ для отметки**, это просто список
+  - **Evening reminder**: checklist с inline-кнопками для каждой привычки — для отметки выполнения
+  - **Per-habit reminder**: «⏰ Пришло время X» с одной кнопкой `✅` — для конкретной привычки в её час
+- **Кастомное время per-habit reminder**: каждая привычка может иметь свой час срабатывания
+- **Глобальное время morning/evening**: конфигурируется в `/settings`
+- **Timezone**: автоопределение по геолокации или ручной ввод
+- **Weekly calendar**: 7-дневная сетка с эмодзи (✅/⬜/⏸/🔴), листание по неделям
+- **`/feedback`**: юзер может прислать мысль/баг/идею + скриншот, идёт через preview-confirm → попадает админу в админ-бот → админ может ответить через `💬 Ответить` → ответ возвращается юзеру через основной бот
+- **Changelog**: система оповещения о новых фичах, есть `/changelog` + автобаннер 3 дня после новой записи
+- **Админ-бот** (`@adm_SleekHabitTracker_Bot`): `/admin`, `/analytics`, `/funnel` живут там, не в основном боте
+
 ---
 
 ## Tech Stack
@@ -291,3 +316,9 @@ npm run db:studio
 - **Reminder deduplication**: always update `lastMorningReminderDate` / `lastEveningReminderDate` after sending
 - **`isActive` soft delete**: never hard-delete habits; set `isActive = false`
 - **`callback_data` Telegram limit**: 64 bytes max — keep serialized callbacks short; current JSON approach is fine for existing types but don't bloat it
+
+---
+
+## Открытые backlog'и
+
+- [`docs/streaks-retention-plan.md`](docs/streaks-retention-plan.md) — большой план по геймификации (streak model, custom reminder texts с tone profiles, milestone congratulations, streak freeze, Telegram message effects). Дизайн выработан с Council (Gemini + GPT-5.5) 2026-05-12, ждёт начала имплементации. Содержит критичные design intents (например утренний reminder НЕ для отметок) и anti-patterns (не lige, не LLM в рантайме, не «мы не нужны...»).
