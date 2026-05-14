@@ -31,6 +31,8 @@ import {
   MISSED_LONG_MORNING,
   MISSED_LONG_EVENING,
   NEAR_MILESTONE_PER_HABIT,
+  NEAR_MILESTONE_PER_HABIT_TWO,
+  NEAR_MILESTONE_HABIT_SUMMARY,
   NEAR_MILESTONE_OVERALL,
   PERFECT_WEEK_AHEAD,
   FREEZE_USED_OVERLAY,
@@ -116,6 +118,18 @@ const freezeUsedSuffix = (remaining: number): string =>
   remaining === 0 ? FREEZE_USED_SUFFIX_NONE_LEFT : FREEZE_USED_SUFFIX_ONE_LEFT;
 
 /**
+ * Форматирует список имён привычек для summary overlay:
+ * - до 3 имён → «X», «Y», «Z»
+ * - 4+ имён → «X», «Y», «Z» и ещё N
+ * Каждое имя экранируется для Markdown.
+ */
+const formatHabitNamesList = (names: string[]): string => {
+  const quoted = names.map((n) => `«${escapeMarkdown(n)}»`);
+  if (quoted.length <= 3) return quoted.join(', ');
+  return `${quoted.slice(0, 3).join(', ')} и ещё ${quoted.length - 3}`;
+};
+
+/**
  * Рендерит overlay-строку (без переноса строки на конце).
  */
 const renderOverlay = (overlay: Overlay, seed: string): string => {
@@ -126,10 +140,25 @@ const renderOverlay = (overlay: Overlay, seed: string): string => {
     });
   }
   if (overlay.kind === 'near_milestone_habit') {
-    const variant = pickDeterministic(NEAR_MILESTONE_PER_HABIT, seed);
+    // 1 или 2 habit'а в overlay — разные пулы шаблонов.
+    if (overlay.habits.length === 1) {
+      const variant = pickDeterministic(NEAR_MILESTONE_PER_HABIT, seed);
+      return renderTemplate(variant.text, {
+        name: escapeMarkdown(overlay.habits[0]!.name),
+        n: overlay.milestone,
+      });
+    }
+    const variant = pickDeterministic(NEAR_MILESTONE_PER_HABIT_TWO, seed);
     return renderTemplate(variant.text, {
-      name: escapeMarkdown(overlay.habitName),
+      name1: escapeMarkdown(overlay.habits[0]!.name),
+      name2: escapeMarkdown(overlay.habits[1]!.name),
       n: overlay.milestone,
+    });
+  }
+  if (overlay.kind === 'near_milestone_habit_summary') {
+    const variant = pickDeterministic(NEAR_MILESTONE_HABIT_SUMMARY, seed);
+    return renderTemplate(variant.text, {
+      names: formatHabitNamesList(overlay.habits.map((h) => h.name)),
     });
   }
   if (overlay.kind === 'near_milestone_overall') {

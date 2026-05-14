@@ -49,10 +49,20 @@ export type ReplacingTrigger =
   | 'missed_long'
   | 'all_completed';
 
+/** Имя\эмодзи привычки для overlay'ев. */
+export type OverlayHabitInfo = {
+  id: number;
+  name: string;
+  emoji: string;
+};
+
 /** Overlay-trigger (добавляется поверх). */
 export type Overlay =
   | { kind: 'freeze_used'; remainingCount: number }
-  | { kind: 'near_milestone_habit'; habitId: number; habitName: string; habitEmoji: string; milestone: number }
+  /** 1-2 привычки на одном milestone (рендерится через NEAR_MILESTONE_PER_HABIT для 1 / _TWO для 2). */
+  | { kind: 'near_milestone_habit'; milestone: number; habits: OverlayHabitInfo[] }
+  /** Summary — остальные habits близкие к стрикам, без указания milestone. */
+  | { kind: 'near_milestone_habit_summary'; habits: OverlayHabitInfo[] }
   | { kind: 'near_milestone_overall'; milestone: number }
   | { kind: 'perfect_week_ahead' };
 
@@ -145,21 +155,11 @@ export const evaluateMorningTrigger = (ctx: EvaluatorContext): ReminderTrigger =
     overlays.push({ kind: 'near_milestone_overall', milestone: overallNext });
   }
 
-  // Per-habit near milestone — только для due-сегодня привычек
-  for (const habit of ctx.habits.filter((h) => h.isActive && isHabitDue(h, ctx.todayDate, ctx.logs))) {
-    const habitStreak = calculatePerHabitStreak(habit, ctx.logs, ctx.freezeUsages, yesterday);
-    const habitNext = findNearMilestone(habitStreak, PER_HABIT_MILESTONES);
-    if (habitNext !== null) {
-      const meta = ctx.habitMetadata?.get(habit.id);
-      overlays.push({
-        kind: 'near_milestone_habit',
-        habitId: habit.id,
-        habitName: meta?.name ?? '',
-        habitEmoji: meta?.emoji ?? '',
-        milestone: habitNext,
-      });
-    }
-  }
+  // Per-habit near milestone — только для due-сегодня привычек.
+  // Группируем по milestone, приоритет: больший milestone впереди. Внутри
+  // группы приоритет: созданные раньше (createdAt ASC). Максимум 2 habits в
+  // одной группе. Максимум 2 группы с конкретикой; остальные → summary.
+  collectPerHabitOverlays(ctx, yesterday, overlays);
 
   if (isPerfectWeekAhead(ctx.habits, ctx.logs, ctx.todayDate)) {
     overlays.push({ kind: 'perfect_week_ahead' });
@@ -214,20 +214,7 @@ export const evaluateEveningTrigger = (ctx: EvaluatorContext): ReminderTrigger =
     overlays.push({ kind: 'near_milestone_overall', milestone: overallNext });
   }
 
-  for (const habit of ctx.habits.filter((h) => h.isActive && isHabitDue(h, ctx.todayDate, ctx.logs))) {
-    const habitStreak = calculatePerHabitStreak(habit, ctx.logs, ctx.freezeUsages, yesterday);
-    const habitNext = findNearMilestone(habitStreak, PER_HABIT_MILESTONES);
-    if (habitNext !== null) {
-      const meta = ctx.habitMetadata?.get(habit.id);
-      overlays.push({
-        kind: 'near_milestone_habit',
-        habitId: habit.id,
-        habitName: meta?.name ?? '',
-        habitEmoji: meta?.emoji ?? '',
-        milestone: habitNext,
-      });
-    }
-  }
+  collectPerHabitOverlays(ctx, yesterday, overlays);
 
   if (isPerfectWeekAhead(ctx.habits, ctx.logs, ctx.todayDate)) {
     overlays.push({ kind: 'perfect_week_ahead' });
@@ -252,6 +239,94 @@ export type PerHabitTrigger = 'normal' | 'habit_missed_1_day' | 'habit_missed_n_
  * - 1 (вчера на due-дне не было отметки) → habit_missed_1_day
  * - 2+ → habit_missed_n_days
  */
+/**
+ * Собирает overlay'и near_milestone_habit для всех due-привычек:
+ * - группирует кандидатов по milestone
+ * - сортирует группы DESC по milestone (больший приоритет)
+ * - в каждой группе берёт максимум 2 habit'а (по createdAt ASC — старые первыми)
+ * - максимум 2 группы → конкретные overlay'и
+ * - остальные habits → summary overlay (max 3 имён + «и ещё N»)
+ */
+const collectPerHabitOverlays = (
+  ctx: EvaluatorContext,
+  yesterday: string,
+  overlays: Overlay[]
+): void => {
+  const dueHabits = ctx.habits.filter(
+    (h) => h.isActive && isHabitDue(h, ctx.todayDate, ctx.logs)
+  );
+  if (dueHabits.length === 0) return;
+
+  // 1. Собираем кандидатов (habit, milestone)
+  const candidates: Array<{ habit: StreakHabit; milestone: number }> = [];
+  for (const habit of dueHabits) {
+    const streak = calculatePerHabitStreak(habit, ctx.logs, ctx.freezeUsages, yesterday);
+    const next = findNearMilestone(streak, PER_HABIT_MILESTONES);
+    if (next !== null) {
+      candidates.push({ habit, milestone: next });
+    }
+  }
+  if (candidates.length === 0) return;
+
+  // 2. Группируем по milestone
+  const byMilestone = new Map<number, StreakHabit[]>();
+  for (const c of candidates) {
+    const list = byMilestone.get(c.milestone) ?? [];
+    list.push(c.habit);
+    byMilestone.set(c.milestone, list);
+  }
+
+  // 3. Внутри группы: сортируем по createdAt ASC (старые первыми), берём top-2
+  type Group = { milestone: number; habits: StreakHabit[]; leftover: StreakHabit[] };
+  const groups: Group[] = [];
+  for (const [milestone, habits] of byMilestone) {
+    const sorted = [...habits].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    groups.push({
+      milestone,
+      habits: sorted.slice(0, 2),
+      leftover: sorted.slice(2),
+    });
+  }
+  // 4. Сортируем группы DESC по milestone
+  groups.sort((a, b) => b.milestone - a.milestone);
+
+  // 5. Топ-2 групп — конкретные overlay'и
+  const detailedGroups = groups.slice(0, 2);
+  const tailGroups = groups.slice(2);
+  for (const g of detailedGroups) {
+    overlays.push({
+      kind: 'near_milestone_habit',
+      milestone: g.milestone,
+      habits: g.habits.map((h) => habitToInfo(h, ctx)),
+    });
+  }
+
+  // 6. Summary: leftover habits из топ-групп + все habits из tail групп
+  const summaryHabits: StreakHabit[] = [];
+  for (const g of detailedGroups) {
+    summaryHabits.push(...g.leftover);
+  }
+  for (const g of tailGroups) {
+    summaryHabits.push(...g.habits, ...g.leftover);
+  }
+  if (summaryHabits.length > 0) {
+    overlays.push({
+      kind: 'near_milestone_habit_summary',
+      habits: summaryHabits.map((h) => habitToInfo(h, ctx)),
+    });
+  }
+};
+
+/** Извлекает name/emoji habit'а из ctx.habitMetadata (fallback на пустоты). */
+const habitToInfo = (habit: StreakHabit, ctx: EvaluatorContext): OverlayHabitInfo => {
+  const meta = ctx.habitMetadata?.get(habit.id);
+  return {
+    id: habit.id,
+    name: meta?.name ?? '',
+    emoji: meta?.emoji ?? '',
+  };
+};
+
 export const evaluatePerHabitTrigger = (
   habit: StreakHabit,
   logs: StreakHabitLog[],
