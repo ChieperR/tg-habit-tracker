@@ -178,15 +178,13 @@ export const getAnalytics = async (period: AnalyticsPeriod): Promise<AnalyticsDa
     where: { date: { gte: startDate }, completed: true },
   });
 
-  const changelogViews = await prisma.analyticsEvent.count({
+  const changelogGroups = await prisma.analyticsEvent.groupBy({
+    by: ['userId'],
     where: { type: 'view_changelog', createdAt: { gte: startDateUTC } },
+    _count: { _all: true },
   });
-  const changelogUniqueAgg = await prisma.analyticsEvent.findMany({
-    where: { type: 'view_changelog', createdAt: { gte: startDateUTC } },
-    select: { userId: true },
-    distinct: ['userId'],
-  });
-  const changelogUniqueUsers = changelogUniqueAgg.length;
+  const changelogUniqueUsers = changelogGroups.length;
+  const changelogViews = changelogGroups.reduce((sum, g) => sum + g._count._all, 0);
 
   // Window-based Retention + Segments
   const [d7Result, d30Result, segments] = await Promise.all([
@@ -262,15 +260,13 @@ export const getAnalyticsForRange = async (from: string, to: string): Promise<An
     where: { date: { gte: from, lte: to }, completed: true },
   });
 
-  const changelogViews = await prisma.analyticsEvent.count({
+  const changelogGroups = await prisma.analyticsEvent.groupBy({
+    by: ['userId'],
     where: { type: 'view_changelog', createdAt: { gte: fromUTC, lte: toUTC } },
+    _count: { _all: true },
   });
-  const changelogUniqueAgg = await prisma.analyticsEvent.findMany({
-    where: { type: 'view_changelog', createdAt: { gte: fromUTC, lte: toUTC } },
-    select: { userId: true },
-    distinct: ['userId'],
-  });
-  const changelogUniqueUsers = changelogUniqueAgg.length;
+  const changelogUniqueUsers = changelogGroups.length;
+  const changelogViews = changelogGroups.reduce((sum, g) => sum + g._count._all, 0);
 
   const [d7Result, d30Result] = await Promise.all([
     calculateWindowRetention(7),
