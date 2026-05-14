@@ -183,7 +183,13 @@ const buildMessage = (
   }
 
   const parts = triggered.map((t) => renderMilestoneBlock(t, userId, todayDate));
-  return ['🎯 *Двойное достижение!*', ...parts].join('\n\n');
+  const header =
+    triggered.length === 2
+      ? '🎯 *Двойное достижение!*'
+      : triggered.length === 3
+      ? '🎯 *Тройное достижение!*'
+      : '🎯 *Несколько достижений!*';
+  return [header, ...parts].join('\n\n');
 };
 
 /** Рендерит один milestone-блок: основной текст + early-adopter bonus если есть. */

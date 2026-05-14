@@ -135,8 +135,10 @@ const processStreakSideEffects = async (
   todayDate: string
 ): Promise<void> => {
   try {
-    // Refund freeze, если backdated день был frozen
-    if (targetDate < todayDate) {
+    // Refund freeze, если отметка не на сегодня и этот день был покрыт
+    // freeze'ом. refundFreeze идемпотентен — no-op если FreezeUsage не было
+    // (так что для будущих дат это безопасно).
+    if (targetDate !== todayDate) {
       await refundFreeze(userId, targetDate);
     }
 

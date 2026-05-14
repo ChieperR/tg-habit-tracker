@@ -163,14 +163,18 @@ export const checkAndSendHabitReminders = async (
  * Вызывается из cron раз в день, в утреннее окно (например 04:00..05:00).
  */
 export const autoApplyFreezesForMissedDays = async (): Promise<void> => {
-  // Один запрос на всех юзеров с инвентарём — habits/logs/freezes выбираются
-  // через include, группируются в памяти. На 1000+ юзеров будет ~3 запроса
-  // вместо ~3000.
+  // Один запрос на всех юзеров с активными привычками — habits/logs/freezes
+  // выбираются через include, группируются в памяти. Здесь же сбрасываем
+  // lastFreezeEarnStreakDay для юзеров, у которых стрик сломался (даже без
+  // freeze в инвентаре) — иначе после восстановления через backdating новый
+  // цикл из 5 дней не даст freeze (см. ревью пункт A).
   const users = await prisma.user.findMany({
-    where: { freezeCount: { gt: 0 } },
+    where: { habits: { some: { isActive: true } } },
     select: {
       id: true,
       timezoneOffset: true,
+      freezeCount: true,
+      lastFreezeEarnStreakDay: true,
       habits: {
         select: {
           id: true,
@@ -205,11 +209,26 @@ export const autoApplyFreezesForMissedDays = async (): Promise<void> => {
     const streakLogs: StreakHabitLog[] = user.habits.flatMap((h) => h.logs);
     const streakFreezes: StreakFreezeUsage[] = user.freezeUsages;
 
-    if (shouldAutoApplyFreeze(streakHabits, streakLogs, streakFreezes, todayDate)) {
-      const yesterdayStr = getPrevDate(todayDate);
-      await autoSpendFreeze(user.id, yesterdayStr).catch((err) => {
-        console.error(`[freeze-cron] Ошибка списания freeze для юзера ${user.id}:`, err);
-      });
+    const willMiss = shouldAutoApplyFreeze(streakHabits, streakLogs, streakFreezes, todayDate);
+
+    if (willMiss) {
+      if (user.freezeCount > 0) {
+        const yesterdayStr = getPrevDate(todayDate);
+        await autoSpendFreeze(user.id, yesterdayStr).catch((err) => {
+          console.error(`[freeze-cron] Ошибка списания freeze для юзера ${user.id}:`, err);
+        });
+      } else if (user.lastFreezeEarnStreakDay > 0) {
+        // Стрик сломан без покрытия freeze'ом — сбрасываем earn-checkpoint,
+        // чтобы юзер при возвращении мог снова заработать freeze.
+        await prisma.user
+          .update({
+            where: { id: user.id },
+            data: { lastFreezeEarnStreakDay: 0 },
+          })
+          .catch((err) => {
+            console.error(`[freeze-cron] Ошибка сброса checkpoint для юзера ${user.id}:`, err);
+          });
+      }
     }
   }
 };

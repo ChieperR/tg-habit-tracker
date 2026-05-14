@@ -142,7 +142,7 @@ export const evaluateMorningTrigger = (ctx: EvaluatorContext): ReminderTrigger =
 
   // Normal — собираем overlay'и
   const yesterday = getPrevDate(ctx.todayDate);
-  const overallStreak = calculateOverallStreak(
+  const overallStreakYesterday = calculateOverallStreak(
     ctx.habits,
     ctx.logs,
     ctx.freezeUsages,
@@ -150,9 +150,18 @@ export const evaluateMorningTrigger = (ctx: EvaluatorContext): ReminderTrigger =
     // сегодня его можно нарастить ещё на 1.
     yesterday
   );
-  const overallNext = findNearMilestone(overallStreak, OVERALL_MILESTONES);
+  const overallNext = findNearMilestone(overallStreakYesterday, OVERALL_MILESTONES);
   if (overallNext !== null) {
-    overlays.push({ kind: 'near_milestone_overall', milestone: overallNext });
+    // Skip overlay если milestone уже достигнут сегодня (ревью B).
+    const overallStreakToday = calculateOverallStreak(
+      ctx.habits,
+      ctx.logs,
+      ctx.freezeUsages,
+      ctx.todayDate
+    );
+    if (overallStreakToday < overallNext) {
+      overlays.push({ kind: 'near_milestone_overall', milestone: overallNext });
+    }
   }
 
   // Per-habit near milestone — только для due-сегодня привычек.
@@ -203,15 +212,26 @@ export const evaluateEveningTrigger = (ctx: EvaluatorContext): ReminderTrigger =
 
   // Normal — overlay'и
   const yesterday = getPrevDate(ctx.todayDate);
-  const overallStreak = calculateOverallStreak(
+  const overallStreakYesterday = calculateOverallStreak(
     ctx.habits,
     ctx.logs,
     ctx.freezeUsages,
     yesterday
   );
-  const overallNext = findNearMilestone(overallStreak, OVERALL_MILESTONES);
+  const overallNext = findNearMilestone(overallStreakYesterday, OVERALL_MILESTONES);
   if (overallNext !== null) {
-    overlays.push({ kind: 'near_milestone_overall', milestone: overallNext });
+    // Если сегодня юзер уже отметил хоть одну due-привычку, overall стрик
+    // today уже стал === overallNext (milestone достигнут). Не показываем
+    // overlay «ещё один день → 5», когда 5 уже сегодня (ревью пункт B).
+    const overallStreakToday = calculateOverallStreak(
+      ctx.habits,
+      ctx.logs,
+      ctx.freezeUsages,
+      ctx.todayDate
+    );
+    if (overallStreakToday < overallNext) {
+      overlays.push({ kind: 'near_milestone_overall', milestone: overallNext });
+    }
   }
 
   collectPerHabitOverlays(ctx, yesterday, overlays);
@@ -257,14 +277,18 @@ const collectPerHabitOverlays = (
   );
   if (dueHabits.length === 0) return;
 
-  // 1. Собираем кандидатов (habit, milestone)
+  // 1. Собираем кандидатов (habit, milestone). Skip привычки, которые уже
+  // достигли milestone'а сегодня — иначе overlay «ещё одна отметка → 5» в
+  // evening после того как привычка уже была отмечена и стрик уже = 5
+  // (ревью пункт C).
   const candidates: Array<{ habit: StreakHabit; milestone: number }> = [];
   for (const habit of dueHabits) {
-    const streak = calculatePerHabitStreak(habit, ctx.logs, ctx.freezeUsages, yesterday);
-    const next = findNearMilestone(streak, PER_HABIT_MILESTONES);
-    if (next !== null) {
-      candidates.push({ habit, milestone: next });
-    }
+    const streakYesterday = calculatePerHabitStreak(habit, ctx.logs, ctx.freezeUsages, yesterday);
+    const next = findNearMilestone(streakYesterday, PER_HABIT_MILESTONES);
+    if (next === null) continue;
+    const streakToday = calculatePerHabitStreak(habit, ctx.logs, ctx.freezeUsages, ctx.todayDate);
+    if (streakToday >= next) continue;
+    candidates.push({ habit, milestone: next });
   }
   if (candidates.length === 0) return;
 
