@@ -48,7 +48,7 @@ export const PER_HABIT_MILESTONES: MilestoneTextSet[] = [
   {
     scope: 'habit',
     milestone: 3,
-    effectIds: [MILESTONE_EFFECT_IDS.like],
+    effectIds: [MILESTONE_EFFECT_IDS.fire],
     variants: [
       { id: 'h3_1', text: '🌱 3 дня подряд ты выполняешь привычку «{name}»! Она уже начинает прорастать, двигаемся дальше!' },
       { id: 'h3_2', text: '🌱 Привычка «{name}» работает 3 дня без сбоев, начало положено!' },
@@ -60,7 +60,7 @@ export const PER_HABIT_MILESTONES: MilestoneTextSet[] = [
   {
     scope: 'habit',
     milestone: 5,
-    effectIds: [MILESTONE_EFFECT_IDS.like],
+    effectIds: [MILESTONE_EFFECT_IDS.fire],
     variants: [
       { id: 'h5_1', text: '🌿 5 дней подряд ты выполняешь привычку «{name}»! Ритм пошёл, двигаемся дальше!' },
       { id: 'h5_2', text: '🌿 Привычка «{name}» работает 5 дней без сбоев! Это уже не разовая попытка.' },
@@ -75,7 +75,7 @@ export const PER_HABIT_MILESTONES: MilestoneTextSet[] = [
   {
     scope: 'habit',
     milestone: 10,
-    effectIds: [MILESTONE_EFFECT_IDS.fire],
+    effectIds: [MILESTONE_EFFECT_IDS.salute],
     variants: [
       { id: 'h10_1', text: '🔥 10 дней подряд по привычке «{name}»! Двузначная цифра, не каждый сюда доходит.' },
       { id: 'h10_2', text: '🌳 Серия привычки «{name}» – 10 дней! Это уже не дисциплина, это инерция.' },
@@ -89,7 +89,7 @@ export const PER_HABIT_MILESTONES: MilestoneTextSet[] = [
   {
     scope: 'habit',
     milestone: 15,
-    effectIds: [MILESTONE_EFFECT_IDS.fire],
+    effectIds: [MILESTONE_EFFECT_IDS.salute],
     variants: [
       { id: 'h15_1', text: '🔥 15 дней подряд по привычке «{name}»! Полмесяца без пропусков – дисциплина превратилась в автоматизм.' },
       { id: 'h15_2', text: '⚡ Привычка «{name}» – 15 дней подряд! Сила воли свою работу сделала, дальше тебя несёт инерция, это именно то чего мы добиваемся!' },
@@ -103,7 +103,7 @@ export const PER_HABIT_MILESTONES: MilestoneTextSet[] = [
   {
     scope: 'habit',
     milestone: 30,
-    effectIds: [MILESTONE_EFFECT_IDS.salute],
+    effectIds: [MILESTONE_EFFECT_IDS.heart],
     variants: [
       { id: 'h30_1', text: '🏆 30 дней подряд по привычке «{name}»! Целый месяц без пропусков – это уже не эксперимент, это часть жизни.' },
       { id: 'h30_2', text: '🎉 Привычка «{name}» – 30 дней! Месячный стрик – серьёзная веха, поздравляю!' },
@@ -121,7 +121,7 @@ export const OVERALL_MILESTONES: MilestoneTextSet[] = [
   {
     scope: 'overall',
     milestone: 3,
-    effectIds: [MILESTONE_EFFECT_IDS.like],
+    effectIds: [MILESTONE_EFFECT_IDS.fire],
     variants: [
       { id: 'o3_1', text: '🌱 3 дня подряд ты закрываешь хотя бы одну привычку! Начало есть, двигаемся дальше!' },
       { id: 'o3_2', text: '🌱 3 дня активности подряд! Ни одного пустого дня: действительно уверенное начало!)' },
@@ -135,7 +135,7 @@ export const OVERALL_MILESTONES: MilestoneTextSet[] = [
   {
     scope: 'overall',
     milestone: 5,
-    effectIds: [MILESTONE_EFFECT_IDS.like],
+    effectIds: [MILESTONE_EFFECT_IDS.fire],
     variants: [
       { id: 'o5_1', text: '🌿 5 дней подряд ты закрываешь хотя бы одну привычку! Ритм пошёл, двигаемся дальше!' },
       { id: 'o5_2', text: '🌿 5 дней активности подряд! Это уже не разовая попытка – это привычка возвращаться сюда.' },
@@ -164,7 +164,7 @@ export const OVERALL_MILESTONES: MilestoneTextSet[] = [
   {
     scope: 'overall',
     milestone: 14,
-    effectIds: [MILESTONE_EFFECT_IDS.fire],
+    effectIds: [MILESTONE_EFFECT_IDS.salute],
     variants: [
       { id: 'o14_1', text: '🔥 Две недели подряд активности! Это уже не разгон, это устоявшийся ритм.' },
       { id: 'o14_2', text: '🔥 14 дней без пустых дней. Это не дисциплина железной волей, это уже привычка возвращаться.' },
@@ -177,7 +177,7 @@ export const OVERALL_MILESTONES: MilestoneTextSet[] = [
   {
     scope: 'overall',
     milestone: 30,
-    effectIds: [MILESTONE_EFFECT_IDS.salute, MILESTONE_EFFECT_IDS.heart],
+    effectIds: [MILESTONE_EFFECT_IDS.heart],
     variants: [
       { id: 'o30_1', text: '🎉 30 дней подряд активности! Целый месяц без единого пустого дня в трекере.' },
       { id: 'o30_2', text: '🎉 Месяц без пропусков. Это уже не дисциплина, это твой обычный режим жизни.' },
@@ -192,7 +192,7 @@ export const OVERALL_MILESTONES: MilestoneTextSet[] = [
   {
     scope: 'overall',
     milestone: 60,
-    effectIds: [MILESTONE_EFFECT_IDS.salute, MILESTONE_EFFECT_IDS.heart],
+    effectIds: [MILESTONE_EFFECT_IDS.heart],
     variants: [
       { id: 'o60_1', text: '🔥 60 дней в строю! С точки зрения статистики – уже выдающийся результат. С точки зрения тебя – уже два месяца новой жизни!' },
       { id: 'o60_2', text: '🔥 Два месяца ни одного пустого дня. На этой дистанции уже не задумываешься, делать или нет – просто делаешь.' },
@@ -205,7 +205,7 @@ export const OVERALL_MILESTONES: MilestoneTextSet[] = [
   {
     scope: 'overall',
     milestone: 100,
-    effectIds: [MILESTONE_EFFECT_IDS.salute, MILESTONE_EFFECT_IDS.heart],
+    effectIds: [MILESTONE_EFFECT_IDS.heart],
     variants: [
       { id: 'o100_1', text: '🎉 100 дней подряд активности! Сотня – цифра, которую сложно списать на случайность.' },
       { id: 'o100_2', text: '🎉 100-дневный стрик активности! Старт уже где-то в туманной дали – а ты всё ещё здесь.' },
