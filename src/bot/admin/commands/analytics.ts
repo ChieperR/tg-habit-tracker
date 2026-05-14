@@ -94,6 +94,13 @@ const formatAnalyticsMessage = (data: Awaited<ReturnType<typeof getAnalytics>>, 
     );
   }
 
+  lines.push(
+    ``,
+    `📋 */changelog*`,
+    `• Вызовов: *${data.changelogViews}*`,
+    `• Уникальных юзеров: *${data.changelogUniqueUsers}*`,
+  );
+
   lines.push(``, `🌐 *Топ источников*`, sourcesLine);
 
   return lines.join('\n');

@@ -19,6 +19,10 @@ export type AnalyticsData = {
   retentionD30: number;
   topSources: [string, number][];
   segments?: SegmentationResult;
+  /** Количество вызовов /changelog за период (event 'view_changelog'). */
+  changelogViews: number;
+  /** Уникальных юзеров вызвавших /changelog за период. */
+  changelogUniqueUsers: number;
 };
 
 /** Данные для ежедневного отчёта администратору */
@@ -174,6 +178,14 @@ export const getAnalytics = async (period: AnalyticsPeriod): Promise<AnalyticsDa
     where: { date: { gte: startDate }, completed: true },
   });
 
+  const changelogGroups = await prisma.analyticsEvent.groupBy({
+    by: ['userId'],
+    where: { type: 'view_changelog', createdAt: { gte: startDateUTC } },
+    _count: { _all: true },
+  });
+  const changelogUniqueUsers = changelogGroups.length;
+  const changelogViews = changelogGroups.reduce((sum, g) => sum + g._count._all, 0);
+
   // Window-based Retention + Segments
   const [d7Result, d30Result, segments] = await Promise.all([
     calculateWindowRetention(7),
@@ -202,6 +214,8 @@ export const getAnalytics = async (period: AnalyticsPeriod): Promise<AnalyticsDa
     retentionD30: d30Result.percent,
     topSources,
     segments,
+    changelogViews,
+    changelogUniqueUsers,
   };
 };
 
@@ -246,6 +260,14 @@ export const getAnalyticsForRange = async (from: string, to: string): Promise<An
     where: { date: { gte: from, lte: to }, completed: true },
   });
 
+  const changelogGroups = await prisma.analyticsEvent.groupBy({
+    by: ['userId'],
+    where: { type: 'view_changelog', createdAt: { gte: fromUTC, lte: toUTC } },
+    _count: { _all: true },
+  });
+  const changelogUniqueUsers = changelogGroups.length;
+  const changelogViews = changelogGroups.reduce((sum, g) => sum + g._count._all, 0);
+
   const [d7Result, d30Result] = await Promise.all([
     calculateWindowRetention(7),
     calculateWindowRetention(30),
@@ -271,6 +293,8 @@ export const getAnalyticsForRange = async (from: string, to: string): Promise<An
     retentionD7: d7Result.percent,
     retentionD30: d30Result.percent,
     topSources,
+    changelogViews,
+    changelogUniqueUsers,
   };
 };
 

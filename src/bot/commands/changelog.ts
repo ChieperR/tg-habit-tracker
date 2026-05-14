@@ -1,5 +1,6 @@
 import { BotContext } from '../../types/index.js';
 import { findOrCreateUser } from '../../services/userService.js';
+import { trackEvent } from '../../services/analyticsService.js';
 import { prisma } from '../../db/index.js';
 import { CHANGELOG, LATEST_CHANGELOG_ID } from '../../changelog.js';
 
@@ -41,6 +42,12 @@ export const handleChangelog = async (ctx: BotContext): Promise<void> => {
   }
 
   await ctx.reply(message, { parse_mode: 'Markdown' });
+
+  // Трекаем просмотр changelog'а
+  void trackEvent(user.id, 'view_changelog', {
+    newEntriesCount: newEntries.length,
+    hasMore,
+  });
 
   // Обновляем lastSeenChangelog (только если есть новые записи)
   if (newEntries.length > 0) {
