@@ -42,12 +42,14 @@ import {
   type StreakHabitLog,
   type StreakFreezeUsage,
 } from '../../services/streak/calculator.js';
+import { autoApplyFreezesForMissedDays } from '../../services/reminder/scheduler.js';
 
 const HELP = `🛠 *DEV: имитация стрика*
 \`/devstreak grow N\` — отмечает последние N дней как выполненные
 \`/devstreak break [N]\` — удаляет N последних логов (N=1 если не указан)
 \`/devstreak freeze N\` — устанавливает freezeCount = N
 \`/devstreak earnreset\` — сбрасывает freeze-earn checkpoint
+\`/devstreak freezecheck\` — вручную запускает freeze auto-apply cron (вместо ожидания каждого часа)
 \`/devstreak status\` — текущее состояние стрика и freeze
 \`/devstreak wipe\` — полный сброс тестовых данных`;
 
@@ -138,6 +140,26 @@ export const handleDevStreak = async (ctx: BotContext): Promise<void> => {
         data: { lastFreezeEarnStreakDay: 0 },
       });
       await ctx.reply('🔄 lastFreezeEarnStreakDay = 0. Следующий 5-day milestone снова выдаст freeze.');
+      return;
+    }
+
+    case 'freezecheck': {
+      // Вручную дёргаем cron freeze-apply (обычно идёт раз в час).
+      const before = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: { freezeCount: true },
+      });
+      await autoApplyFreezesForMissedDays();
+      const after = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: { freezeCount: true, lastFreezeEarnStreakDay: true },
+      });
+      const lines = [
+        '🧊 Freeze cron run завершён.',
+        `freezeCount: ${before?.freezeCount ?? 0} → ${after?.freezeCount ?? 0}`,
+        `lastFreezeEarnStreakDay: ${after?.lastFreezeEarnStreakDay ?? 0}`,
+      ];
+      await ctx.reply(lines.join('\n'));
       return;
     }
 
