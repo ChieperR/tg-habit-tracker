@@ -171,11 +171,11 @@ const renderOverlay = (overlay: Overlay, seed: string): string => {
 };
 
 /** Выбирает header+footer связку для morning missed-trigger'а. */
-const pickMorningPair = async (
+const pickMorningPair = (
   replacing: ReplacingTrigger,
   userId: number,
   todayDate: string
-): Promise<{ header: string; footer: string; templateId: string }> => {
+): { header: string; footer: string; templateId: string } => {
   let pool: HeaderFooterPair[] = [];
   let applySubstitution = false;
 
@@ -214,11 +214,11 @@ const pickMorningPair = async (
 };
 
 /** Выбирает intro (второй абзац) для вечернего missed-trigger'а. */
-const pickEveningIntro = async (
+const pickEveningIntro = (
   replacing: ReplacingTrigger,
   userId: number,
   todayDate: string
-): Promise<{ text: string; templateId: string }> => {
+): { text: string; templateId: string } => {
   let pool: TextPiece[] = [];
   let applySubstitution = false;
 
@@ -246,8 +246,7 @@ const pickEveningIntro = async (
       pool = ALL_COMPLETED_EVENING_INTROS;
       break;
     case 'normal':
-      // Normal вечерний — фикс intro, не варьируется. Запись в MessageSent
-      // не нужна для фиксированных строк.
+      // Normal вечерний — фикс intro, не варьируется.
       return { text: NORMAL_EVENING_INTRO, templateId: 'normal_evening_fixed' };
   }
 
@@ -291,7 +290,7 @@ export const buildMorningReminder = async (
     footerText = footerVariant.text;
     triggerLabel = 'normal_morning';
   } else {
-    const pair = await pickMorningPair(trigger.replacing, userId, todayDate);
+    const pair = pickMorningPair(trigger.replacing, userId, todayDate);
     headerText = pair.header;
     footerText = pair.footer;
     triggerLabel = trigger.replacing;
@@ -330,7 +329,7 @@ export const buildEveningReminder = async (
   const ctx = await loadEvaluatorContext(userId, todayDate);
   const trigger = evaluateEveningTrigger(ctx);
 
-  const intro = await pickEveningIntro(trigger.replacing, userId, todayDate);
+  const intro = pickEveningIntro(trigger.replacing, userId, todayDate);
 
   let message = NORMAL_EVENING_HEADER + '\n\n';
 
