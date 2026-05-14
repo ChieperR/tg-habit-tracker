@@ -7,8 +7,6 @@ import { handleHabits } from './commands/habits.js';
 import { handleStats } from './commands/stats.js';
 import { handleSettings } from './commands/settings.js';
 import { handleDaily } from './commands/daily.js';
-import { handleDevStreak } from './commands/devstreak.js';
-import { handleDevEffects } from './commands/deveffects.js';
 import { handleChangelog } from './commands/changelog.js';
 import { handleFeedback } from './commands/feedback.js';
 import { handleCallback } from './callbacks/index.js';
@@ -79,9 +77,7 @@ export const createBot = (token: string): Bot<BotContext> => {
   // DEV команды (только в режиме разработки)
   if (process.env.NODE_ENV === 'development' || process.env.DEV === 'true') {
     bot.command('daily', handleDaily);
-    bot.command('devstreak', handleDevStreak);
-    bot.command('deveffects', handleDevEffects);
-    console.log('🔧 DEV режим: /daily, /devstreak, /deveffects доступны');
+    console.log('🔧 DEV режим: команда /daily доступна');
   }
 
   // Ожидание ввода часового пояса (после /start без timezone)
