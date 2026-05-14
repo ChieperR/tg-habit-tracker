@@ -215,13 +215,12 @@ export const handleDevStreak = async (ctx: BotContext): Promise<void> => {
         prisma.habitLog.deleteMany({ where: { habit: { userId: user.id } } }),
         prisma.freezeUsage.deleteMany({ where: { userId: user.id } }),
         prisma.achievementEvent.deleteMany({ where: { userId: user.id } }),
-        prisma.messageSent.deleteMany({ where: { userId: user.id } }),
         prisma.user.update({
           where: { id: user.id },
           data: { freezeCount: 0, lastFreezeEarnStreakDay: 0 },
         }),
       ]);
-      await ctx.reply('🧹 Все тестовые данные стрика/freeze/achievement/messageSent удалены. Clean slate.');
+      await ctx.reply('🧹 Все тестовые данные стрика/freeze/achievement удалены. Clean slate.');
       return;
     }
 

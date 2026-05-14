@@ -55,8 +55,6 @@ import {
 } from '../streak/triggerEvaluator.js';
 import {
   pickDeterministic,
-  pickWithCooldown,
-  recordTemplateSent,
   renderTemplate,
 } from '../streak/textSelector.js';
 import type {
@@ -207,7 +205,7 @@ const pickMorningPair = async (
   }
 
   const seed = `${userId}:${todayDate}:${replacing}:morning-pair`;
-  const variant = await pickWithCooldown(pool, seed, userId, todayDate);
+  const variant = pickDeterministic(pool, seed);
   return {
     header: applySubstitution ? replaceThreeWithTwo(variant.header) : variant.header,
     footer: applySubstitution ? replaceThreeWithTwo(variant.footer) : variant.footer,
@@ -254,7 +252,7 @@ const pickEveningIntro = async (
   }
 
   const seed = `${userId}:${todayDate}:${replacing}:evening-intro`;
-  const variant = await pickWithCooldown(pool, seed, userId, todayDate);
+  const variant = pickDeterministic(pool, seed);
   return {
     text: applySubstitution ? replaceThreeWithTwo(variant.text) : variant.text,
     templateId: variant.id,
@@ -292,15 +290,11 @@ export const buildMorningReminder = async (
     headerText = headerVariant.text;
     footerText = footerVariant.text;
     triggerLabel = 'normal_morning';
-    // Запись MessageSent для cooldown
-    await recordTemplateSent(userId, headerVariant.id, 'normal_morning', todayDate).catch(() => undefined);
-    await recordTemplateSent(userId, footerVariant.id, 'normal_morning', todayDate).catch(() => undefined);
   } else {
     const pair = await pickMorningPair(trigger.replacing, userId, todayDate);
     headerText = pair.header;
     footerText = pair.footer;
     triggerLabel = trigger.replacing;
-    await recordTemplateSent(userId, pair.templateId, trigger.replacing, todayDate).catch(() => undefined);
   }
 
   let message = headerText + '\n\n';
@@ -337,11 +331,6 @@ export const buildEveningReminder = async (
   const trigger = evaluateEveningTrigger(ctx);
 
   const intro = await pickEveningIntro(trigger.replacing, userId, todayDate);
-  if (trigger.replacing !== 'normal') {
-    await recordTemplateSent(userId, intro.templateId, trigger.replacing, todayDate).catch(
-      () => undefined
-    );
-  }
 
   let message = NORMAL_EVENING_HEADER + '\n\n';
 
@@ -408,10 +397,7 @@ export const buildPerHabitReminder = async (
   }
 
   const seed = `${userId}:${habit.id}:${todayDate}:${trigger}`;
-  const variant = await pickWithCooldown(pool, seed, userId, todayDate);
-  await recordTemplateSent(userId, variant.id, `per_habit_${trigger}`, todayDate).catch(
-    () => undefined
-  );
+  const variant = pickDeterministic(pool, seed);
 
   return renderTemplate(variant.text, {
     emoji: habit.emoji,

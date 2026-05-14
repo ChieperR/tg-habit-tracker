@@ -54,8 +54,6 @@ model User {
   achievementEvents AchievementEvent[]
   /// Использованные заморозки
   freezeUsages      FreezeUsage[]
-  /// Отправленные шаблоны reminder'ов (для cooldown)
-  messagesSent      MessageSent[]
 }
 
 /// Достижение milestone'а (per-habit или overall). Создаётся один раз на (scope, habitId, milestone) — unique constraint обеспечивает идемпотентность при повторных callback'ах.
@@ -96,26 +94,6 @@ model FreezeUsage {
   /// Один день у юзера может быть заморожен только один раз
   @@unique([userId, date])
   @@index([userId, date])
-}
-
-/// Отправленный reminder-шаблон (для cooldown 14 дней — один и тот же шаблон не повторяется чаще)
-model MessageSent {
-  id         Int      @id @default(autoincrement())
-  /// ID шаблона (например "missed_3_days_morning_pair_2")
-  templateId String
-  /// Триггер ("missed_1_day", "near_milestone", "freeze_used", "normal_morning" и т.д.)
-  trigger    String
-  /// Дата отправки (YYYY-MM-DD)
-  date       String
-  /// Когда отправлено
-  createdAt  DateTime @default(now())
-
-  /// Пользователь
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId Int
-
-  @@index([userId, templateId, date])
-  @@index([userId, trigger, date])
 }
 
 /// Сообщение фидбэка от юзера
