@@ -24,6 +24,12 @@ import {
  * Регистрирует достижение milestone'а. Идемпотентно — повторный вызов с теми же
  * параметрами не создаёт дубль.
  *
+ * **Важно про NULL в SQLite:** для overall-milestone'ов `habitId=null`. SQLite
+ * трактует NULL в unique-constraint как distinct (каждый NULL уникален), так
+ * что полагаться на `@@unique` через P2002-catch нельзя — для overall он не
+ * сработает. Поэтому делаем явную проверку existence через `findFirst` в
+ * транзакции, и только потом создаём.
+ *
  * @returns true если создан новый AchievementEvent (первое достижение),
  * false если уже был.
  */
@@ -33,17 +39,24 @@ export const recordMilestone = async (
   habitId: number | null,
   milestone: number
 ): Promise<boolean> => {
-  try {
-    await prisma.achievementEvent.create({
-      data: { userId, scope, habitId, milestone },
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.achievementEvent.findFirst({
+      where: { userId, scope, habitId, milestone },
+      select: { id: true },
     });
-    return true;
-  } catch (error: unknown) {
-    // Unique constraint violation → уже было достижение, возвращаем false
-    const err = error as { code?: string };
-    if (err?.code === 'P2002') return false;
-    throw error;
-  }
+    if (existing) return false;
+    try {
+      await tx.achievementEvent.create({
+        data: { userId, scope, habitId, milestone },
+      });
+      return true;
+    } catch (error: unknown) {
+      // Защита от race (два параллельных callback'а оба прошли existence-check)
+      const err = error as { code?: string };
+      if (err?.code === 'P2002') return false;
+      throw error;
+    }
+  });
 };
 
 /**
