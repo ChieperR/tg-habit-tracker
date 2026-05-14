@@ -1,7 +1,7 @@
 import { prisma } from '../../db/index.js';
 
 /** Типы аналитических событий */
-export type AnalyticsEventType = 'start' | 'start_returning' | 'checkin' | 'habit_create' | 'habit_delete' | 'reminder_sent' | 'bot_blocked' | 'view_habits' | 'view_stats' | 'feedback_submitted';
+export type AnalyticsEventType = 'start' | 'start_returning' | 'checkin' | 'habit_create' | 'habit_delete' | 'reminder_sent' | 'bot_blocked' | 'view_habits' | 'view_stats' | 'view_changelog' | 'feedback_submitted';
 
 /**
  * Записывает аналитическое событие и обновляет lastActiveAt пользователя.
