@@ -12,61 +12,109 @@ datasource db {
 
 /// Пользователь бота
 model User {
-  id        Int      @id @default(autoincrement())
+  id                      Int       @id @default(autoincrement())
   /// Telegram ID пользователя
-  telegramId BigInt   @unique
+  telegramId              BigInt    @unique
   /// Время утреннего напоминания (формат HH:MM)
-  morningTime String  @default("08:00")
+  morningTime             String    @default("08:00")
   /// Время вечернего напоминания (формат HH:MM)
-  eveningTime String  @default("21:00")
+  eveningTime             String    @default("21:00")
   /// Часовой пояс пользователя (смещение в минутах от UTC), null = не настроен
-  timezoneOffset Int?
+  timezoneOffset          Int?
   /// Включены ли утренние напоминания
-  morningEnabled Boolean @default(true)
+  morningEnabled          Boolean   @default(true)
   /// Включены ли вечерние напоминания
-  eveningEnabled Boolean @default(true)
+  eveningEnabled          Boolean   @default(true)
   /// Дата последнего утреннего напоминания (YYYY-MM-DD)
   lastMorningReminderDate String?
   /// Дата последнего вечернего напоминания (YYYY-MM-DD)
   lastEveningReminderDate String?
   /// ID последнего просмотренного обновления changelog
-  lastSeenChangelog Int @default(0)
+  lastSeenChangelog       Int       @default(0)
   /// Источник привлечения пользователя (deep link параметр)
-  source String @default("organic")
+  source                  String    @default("organic")
   /// Дата последней активности
-  lastActiveAt DateTime?
+  lastActiveAt            DateTime?
   /// Дата отправки последнего фидбэка (для rate-limit /feedback)
-  lastFeedbackAt DateTime?
+  lastFeedbackAt          DateTime?
+  /// Количество заморозок стрика в инвентаре (max 2)
+  freezeCount             Int       @default(0)
+  /// Чекпоинт последнего overall-стрика на котором начислялась заморозка (для earn каждые 5 дней)
+  lastFreezeEarnStreakDay Int       @default(0)
   /// Дата создания аккаунта
-  createdAt DateTime @default(now())
+  createdAt               DateTime  @default(now())
 
   /// Привычки пользователя
-  habits Habit[]
+  habits            Habit[]
   /// Аналитические события
-  analyticsEvents AnalyticsEvent[]
+  analyticsEvents   AnalyticsEvent[]
   /// Отправленные фидбэки
-  feedbackMessages FeedbackMessage[]
+  feedbackMessages  FeedbackMessage[]
+  /// Достижения milestone (для идемпотентности)
+  achievementEvents AchievementEvent[]
+  /// Использованные заморозки
+  freezeUsages      FreezeUsage[]
+}
+
+/// Достижение milestone'а (per-habit или overall). Создаётся один раз на (scope, habitId, milestone) — unique constraint обеспечивает идемпотентность при повторных callback'ах.
+model AchievementEvent {
+  id         Int      @id @default(autoincrement())
+  /// Тип: "habit" (для per-habit) | "overall" (для общей активности)
+  scope      String
+  /// ID привычки (null для overall)
+  habitId    Int?
+  /// Размер milestone'а в днях (3, 5, 7, 10, 14, 15, 30, 60, 100)
+  milestone  Int
+  /// Дата достижения
+  achievedAt DateTime @default(now())
+
+  /// Пользователь
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId Int
+
+  /// Один и тот же milestone не может фаерить дважды для одного scope+habit
+  @@unique([userId, scope, habitId, milestone])
+  @@index([scope, milestone, achievedAt])
+}
+
+/// Использование заморозки стрика — покрывает один календарный день целиком (overall + все per-habit стрики due-привычек этого дня).
+model FreezeUsage {
+  id        Int      @id @default(autoincrement())
+  /// Дата покрытого дня (YYYY-MM-DD в timezone юзера)
+  date      String
+  /// Причина списания: "auto_miss" (стандарт, авто-применение утром)
+  reason    String   @default("auto_miss")
+  /// Когда списалось
+  createdAt DateTime @default(now())
+
+  /// Пользователь
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId Int
+
+  /// Один день у юзера может быть заморожен только один раз
+  @@unique([userId, date])
+  @@index([userId, date])
 }
 
 /// Сообщение фидбэка от юзера
 model FeedbackMessage {
-  id           Int       @id @default(autoincrement())
+  id          Int       @id @default(autoincrement())
   /// Текст сообщения юзера
-  text         String
+  text        String
   /// Telegram file_id скриншота (если приложен)
-  photoFileId  String?
+  photoFileId String?
   /// Статус: "new" | "seen" | "replied"
-  status       String    @default("new")
+  status      String    @default("new")
   /// Текст ответа админа (если ответил)
-  adminReply   String?
+  adminReply  String?
   /// Когда админ ответил/закрыл
-  repliedAt    DateTime?
+  repliedAt   DateTime?
   /// Дата создания фидбэка
-  createdAt    DateTime  @default(now())
+  createdAt   DateTime  @default(now())
 
   /// Автор фидбэка
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId       Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId Int
 
   @@index([status])
   @@index([createdAt])
@@ -114,30 +162,30 @@ model DailySnapshot {
 
 /// Привычка
 model Habit {
-  id        Int      @id @default(autoincrement())
+  id                    Int      @id @default(autoincrement())
   /// Название привычки
-  name      String
+  name                  String
   /// Эмодзи для привычки
-  emoji     String   @default("✨")
+  emoji                 String   @default("✨")
   /// Тип частоты: "daily" | "interval" | "weekdays"
-  frequencyType String @default("daily")
+  frequencyType         String   @default("daily")
   /// Интервал в днях (для frequencyType = "interval")
-  frequencyDays Int  @default(1)
+  frequencyDays         Int      @default(1)
   /// Дни недели через запятую: "1,2,3" где 0=Вс, 1=Пн, ..., 6=Сб (для frequencyType = "weekdays")
-  weekdays  String?
+  weekdays              String?
   /// Время персонального напоминания (формат HH:MM в часовом поясе пользователя), null = нет
-  reminderTime String?
+  reminderTime          String?
   /// Дата последнего персонального напоминания (YYYY-MM-DD), для дедупликации
   lastHabitReminderDate String?
   /// Активна ли привычка
-  isActive  Boolean  @default(true)
+  isActive              Boolean  @default(true)
   /// Дата создания
-  createdAt DateTime @default(now())
-  
+  createdAt             DateTime @default(now())
+
   /// Владелец привычки
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId Int
-  
+
   /// Логи выполнения
   logs HabitLog[]
 }
@@ -146,16 +194,16 @@ model Habit {
 model HabitLog {
   id        Int      @id @default(autoincrement())
   /// Дата выполнения (только дата, без времени)
-  date      String   // Формат: YYYY-MM-DD
+  date      String // Формат: YYYY-MM-DD
   /// Выполнена ли привычка
   completed Boolean  @default(false)
   /// Когда была сделана отметка
   markedAt  DateTime @default(now())
-  
+
   /// Привычка
   habit   Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
   habitId Int
-  
+
   /// Уникальный индекс: одна привычка — одна запись на день
   @@unique([habitId, date])
 }

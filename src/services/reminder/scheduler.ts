@@ -9,11 +9,15 @@ import {
   isHabitDueToday,
   getCurrentMinutesInTimezone,
   DEFAULT_TIMEZONE_OFFSET,
+  getPrevDate,
 } from '../../utils/date.js';
 import { serializeCallback } from '../../utils/callback.js';
 import { trackEvent } from '../analyticsService.js';
 import { sendMorningReminder, sendEveningReminder } from './senders.js';
 import { handleDeliveryError } from './delivery.js';
+import { buildPerHabitReminder } from './textBuilder.js';
+import { shouldAutoApplyFreeze, type StreakHabit, type StreakHabitLog, type StreakFreezeUsage } from '../streak/calculator.js';
+import { autoSpendFreeze } from '../streak/freezeService.js';
 
 /**
  * Проверяет и отправляет утренние/вечерние напоминания всем пользователям.
@@ -114,7 +118,16 @@ export const checkAndSendHabitReminders = async (
     const targetTimeInMinutes = targetHours * 60 + targetMinutes;
 
     if (currentTimeInMinutes >= targetTimeInMinutes) {
-      const message = `⏰ Пришло время: *${habit.emoji} ${habit.name}*`;
+      const message = await buildPerHabitReminder(habit.userId, timezoneOffset, {
+        id: habit.id,
+        name: habit.name,
+        emoji: habit.emoji,
+        frequencyType: habit.frequencyType,
+        frequencyDays: habit.frequencyDays,
+        weekdays: habit.weekdays,
+        createdAt: habit.createdAt,
+        isActive: habit.isActive,
+      });
       const keyboard = new InlineKeyboard()
         .text('✅ Выполнено', serializeCallback({ type: 'habit_toggle', habitId: habit.id, source: 'habit_reminder' }));
 
@@ -135,6 +148,87 @@ export const checkAndSendHabitReminders = async (
         where: { id: habit.id },
         data: { lastHabitReminderDate: todayDate },
       });
+    }
+  }
+};
+
+/**
+ * Утренняя проверка freeze: для всех юзеров с активными привычками,
+ * у которых вчера были due-привычки и ни одна не выполнена и день не покрыт
+ * freeze, и в инвентаре есть freeze — автоматически списываем freeze.
+ *
+ * Идемпотентна: благодаря unique constraint `[userId, date]` на FreezeUsage,
+ * повторный вызов на тот же день ничего не делает.
+ *
+ * Вызывается из cron раз в день, в утреннее окно (например 04:00..05:00).
+ */
+export const autoApplyFreezesForMissedDays = async (): Promise<void> => {
+  // Один запрос на всех юзеров с активными привычками — habits/logs/freezes
+  // выбираются через include, группируются в памяти. Здесь же сбрасываем
+  // lastFreezeEarnStreakDay для юзеров, у которых стрик сломался (даже без
+  // freeze в инвентаре) — иначе после восстановления через backdating новый
+  // цикл из 5 дней не даст freeze (см. ревью пункт A).
+  const users = await prisma.user.findMany({
+    where: { habits: { some: { isActive: true } } },
+    select: {
+      id: true,
+      timezoneOffset: true,
+      freezeCount: true,
+      lastFreezeEarnStreakDay: true,
+      habits: {
+        select: {
+          id: true,
+          frequencyType: true,
+          frequencyDays: true,
+          weekdays: true,
+          createdAt: true,
+          isActive: true,
+          logs: {
+            select: { habitId: true, date: true, completed: true },
+          },
+        },
+      },
+      freezeUsages: {
+        select: { date: true },
+      },
+    },
+  });
+
+  for (const user of users) {
+    const timezoneOffset = user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET;
+    const todayDate = getTodayDate(timezoneOffset);
+
+    const streakHabits: StreakHabit[] = user.habits.map((h) => ({
+      id: h.id,
+      frequencyType: h.frequencyType,
+      frequencyDays: h.frequencyDays,
+      weekdays: h.weekdays,
+      createdAt: h.createdAt,
+      isActive: h.isActive,
+    }));
+    const streakLogs: StreakHabitLog[] = user.habits.flatMap((h) => h.logs);
+    const streakFreezes: StreakFreezeUsage[] = user.freezeUsages;
+
+    const willMiss = shouldAutoApplyFreeze(streakHabits, streakLogs, streakFreezes, todayDate);
+
+    if (willMiss) {
+      if (user.freezeCount > 0) {
+        const yesterdayStr = getPrevDate(todayDate);
+        await autoSpendFreeze(user.id, yesterdayStr).catch((err) => {
+          console.error(`[freeze-cron] Ошибка списания freeze для юзера ${user.id}:`, err);
+        });
+      } else if (user.lastFreezeEarnStreakDay > 0) {
+        // Стрик сломан без покрытия freeze'ом — сбрасываем earn-checkpoint,
+        // чтобы юзер при возвращении мог снова заработать freeze.
+        await prisma.user
+          .update({
+            where: { id: user.id },
+            data: { lastFreezeEarnStreakDay: 0 },
+          })
+          .catch((err) => {
+            console.error(`[freeze-cron] Ошибка сброса checkpoint для юзера ${user.id}:`, err);
+          });
+      }
     }
   }
 };

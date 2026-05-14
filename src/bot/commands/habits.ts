@@ -2,7 +2,7 @@ import { BotContext, HabitWithTodayStatus } from '../../types/index.js';
 import { findOrCreateUser } from '../../services/userService.js';
 import { getUserHabitsWithTodayStatus, getUserHabitsWithDateStatus } from '../../services/habitService.js';
 import { createHabitsListKeyboard, createMainMenuKeyboard } from '../keyboards/index.js';
-import { safeEditMessage } from '../../utils/telegram.js';
+import { safeEditMessage, escapeMarkdown } from '../../utils/telegram.js';
 import { getTodayDate, formatDayHeader } from '../../utils/date.js';
 import { getChangelogBanner } from '../../changelog.js';
 import { trackEvent } from '../../services/analyticsService.js';
@@ -35,7 +35,7 @@ const buildHabitsMessage = (
       const status = habit.completedToday ? '✅' : '⬜';
       const dueIndicator = habit.isDueToday ? '' : ' 💤';
       const reminderIndicator = habit.reminderTime ? `  ⏰ ${habit.reminderTime}` : '';
-      message += `${status} ${habit.emoji} ${habit.name}${dueIndicator}${reminderIndicator}\n`;
+      message += `${status} ${habit.emoji} ${escapeMarkdown(habit.name)}${dueIndicator}${reminderIndicator}\n`;
     }
     message += '\n';
   }

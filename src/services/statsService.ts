@@ -1,7 +1,15 @@
 import { prisma } from '../db/index.js';
 import { HabitStats, UserStats } from '../types/index.js';
 import { getLastNDays, getTodayDate } from '../utils/date.js';
+import { escapeMarkdown } from '../utils/telegram.js';
 import { format, subDays, startOfWeek, addDays, parse } from 'date-fns';
+import {
+  calculateOverallStreak,
+  type StreakHabit,
+  type StreakHabitLog,
+  type StreakFreezeUsage,
+} from './streak/calculator.js';
+import { FREEZE_CAP } from './streak/freezeService.js';
 
 /**
  * Сервис для работы со статистикой
@@ -312,7 +320,37 @@ export const formatStatsMessage = async (
 
   let message = '📊 *Твоя статистика*\n\n';
   message += `📝 Активных привычек: *${stats.activeHabits}*\n`;
-  message += `✅ Всего выполнений: *${stats.totalCompletions}*\n\n`;
+  message += `✅ Всего выполнений: *${stats.totalCompletions}*\n`;
+
+  // Overall activity streak + freezes inventory
+  const [user, habits, logs, freezes] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { freezeCount: true },
+    }),
+    prisma.habit.findMany({ where: { userId } }),
+    prisma.habitLog.findMany({
+      where: { habit: { userId } },
+      select: { habitId: true, date: true, completed: true },
+    }),
+    prisma.freezeUsage.findMany({
+      where: { userId },
+      select: { date: true },
+    }),
+  ]);
+
+  if (user && habits.length > 0) {
+    const todayDate = getTodayDate(timezoneOffset);
+    const overallStreak = calculateOverallStreak(
+      habits as StreakHabit[],
+      logs as StreakHabitLog[],
+      freezes as StreakFreezeUsage[],
+      todayDate
+    );
+    message += `🔥 Общий стрик активности: *${overallStreak}* дн.\n`;
+    message += `🧊 Заморозки: *${user.freezeCount}/${FREEZE_CAP}*\n`;
+  }
+  message += '\n';
 
   // Добавляем график активности
   const graph = await generateActivityGraph(userId, timezoneOffset);
@@ -324,7 +362,7 @@ export const formatStatsMessage = async (
       habit.currentStreak < habit.maxStreak
         ? ` (Рекорд: ${habit.maxStreak})`
         : '';
-    message += `${habit.emoji} *${habit.name}*\n`;
+    message += `${habit.emoji} *${escapeMarkdown(habit.name)}*\n`;
     message += `   🔥 Стрик: ${habit.currentStreak} дн.${recordSuffix}\n`;
     message += `   📈 За 30 дней: ${habit.completionRate}%\n\n`;
   }
