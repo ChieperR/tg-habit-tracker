@@ -9,6 +9,7 @@ import { handleHelp } from '../commands/help.js';
 import { handleHabitToggle, handleHabitDeletePrompt, handleHabitConfirmDelete, handleHabitDetails, handleHabitReminderRemove } from './handlers/habitCallbacks.js';
 import { handleSettingsCallback } from './handlers/settingsCallbacks.js';
 import { showMainMenu } from './handlers/navigationCallbacks.js';
+import { handleDevEffectsCallback, isDevEffectsCallback } from '../commands/deveffects.js';
 
 /**
  * Главный обработчик всех callback запросов (тонкий роутер)
@@ -34,6 +35,13 @@ export const handleCallback = async (ctx: BotContext): Promise<void> => {
   // Settings callbacks
   if (data.startsWith('settings:')) {
     await handleSettingsCallback(ctx, data);
+    return;
+  }
+
+  // DEV: deveffects picker (только в DEV режиме, в prod callback не сработает
+  // т.к. /deveffects не зарегистрирован, и пользователь не получит keyboard).
+  if (isDevEffectsCallback(data)) {
+    await handleDevEffectsCallback(ctx);
     return;
   }
 
