@@ -45,6 +45,25 @@ export type StreakFreezeUsage = {
 };
 
 /**
+ * Возвращает effective «дата начала жизни» привычки для streak-расчётов.
+ *
+ * Если у привычки есть completion log'и с датой РАНЬШЕ `habit.createdAt`
+ * (юзер backdate'нул через weekly calendar), считаем что фактически привычка
+ * существовала с того раннего completion'а — иначе streak-логика
+ * проигнорирует backdated дни.
+ */
+export const getEffectiveStartDate = (habit: StreakHabit, logs: StreakHabitLog[]): string => {
+  const habitCreatedDate = format(habit.createdAt, 'yyyy-MM-dd');
+  const ownCompleted = logs.filter((l) => l.habitId === habit.id && l.completed);
+  if (ownCompleted.length === 0) return habitCreatedDate;
+  let earliest = ownCompleted[0]!.date;
+  for (const l of ownCompleted) {
+    if (l.date < earliest) earliest = l.date;
+  }
+  return earliest < habitCreatedDate ? earliest : habitCreatedDate;
+};
+
+/**
  * Возвращает referenceDate для habit (для interval-расписания).
  * Это дата первого completion (если есть), иначе дата создания привычки.
  */
@@ -68,11 +87,14 @@ export const isHabitDue = (
   habit: StreakHabit,
   dateStr: string,
   logs: StreakHabitLog[],
-  referenceDate?: string
+  referenceDate?: string,
+  effectiveStartDate?: string
 ): boolean => {
-  // Привычка не существовала на эту дату — не due
-  const habitCreatedDate = format(habit.createdAt, 'yyyy-MM-dd');
-  if (dateStr < habitCreatedDate) return false;
+  // Нижняя граница «существования» привычки. По умолчанию — habit.createdAt.
+  // Per-habit calculator'ы передают effectiveStartDate (`min(createdAt, earliest_completed)`),
+  // чтобы backdated completion дни ДО createdAt тоже считались due.
+  const lowerBound = effectiveStartDate ?? format(habit.createdAt, 'yyyy-MM-dd');
+  if (dateStr < lowerBound) return false;
 
   return isHabitDueOnDate({
     frequencyType: habit.frequencyType as 'daily' | 'interval' | 'weekdays',
@@ -110,16 +132,16 @@ export const calculatePerHabitStreak = (
   );
   const frozenDates = new Set(freezeUsages.map((f) => f.date));
 
-  const habitCreatedDate = format(habit.createdAt, 'yyyy-MM-dd');
+  const startDate = getEffectiveStartDate(habit, logs);
   const referenceDate = getHabitReferenceDate(habit, logs);
   let streak = 0;
   const cursor = parse(endDate, 'yyyy-MM-dd', new Date());
 
   for (let i = 0; i < maxDays; i++) {
     const cursorStr = format(cursor, 'yyyy-MM-dd');
-    if (cursorStr < habitCreatedDate) break;
+    if (cursorStr < startDate) break;
 
-    if (isHabitDue(habit, cursorStr, logs, referenceDate)) {
+    if (isHabitDue(habit, cursorStr, logs, referenceDate, startDate)) {
       if (completedDates.has(cursorStr) || frozenDates.has(cursorStr)) {
         streak++;
       } else {
@@ -162,16 +184,16 @@ export const calculatePerHabitStreakLenient = (
   );
   const frozenDates = new Set(freezeUsages.map((f) => f.date));
 
-  const habitCreatedDate = format(habit.createdAt, 'yyyy-MM-dd');
+  const startDate = getEffectiveStartDate(habit, logs);
   const referenceDate = getHabitReferenceDate(habit, logs);
   let streak = 0;
   const cursor = parse(endDate, 'yyyy-MM-dd', new Date());
 
   for (let i = 0; i < maxDays; i++) {
     const cursorStr = format(cursor, 'yyyy-MM-dd');
-    if (cursorStr < habitCreatedDate) break;
+    if (cursorStr < startDate) break;
 
-    if (isHabitDue(habit, cursorStr, logs, referenceDate)) {
+    if (isHabitDue(habit, cursorStr, logs, referenceDate, startDate)) {
       if (completedDates.has(cursorStr) || frozenDates.has(cursorStr)) {
         streak++;
       } else if (i === 0) {
@@ -208,17 +230,17 @@ export const calculatePerHabitMaxStreak = (
   );
   const frozenDates = new Set(freezeUsages.map((f) => f.date));
 
-  const habitCreatedDate = format(habit.createdAt, 'yyyy-MM-dd');
+  const startDate = getEffectiveStartDate(habit, logs);
   const referenceDate = getHabitReferenceDate(habit, logs);
 
   let maxStreak = 0;
   let currentRun = 0;
-  const cursor = parse(habitCreatedDate, 'yyyy-MM-dd', new Date());
+  const cursor = parse(startDate, 'yyyy-MM-dd', new Date());
 
   while (true) {
     const cursorStr = format(cursor, 'yyyy-MM-dd');
     if (cursorStr > endDate) break;
-    if (isHabitDue(habit, cursorStr, logs, referenceDate)) {
+    if (isHabitDue(habit, cursorStr, logs, referenceDate, startDate)) {
       if (completedDates.has(cursorStr) || frozenDates.has(cursorStr)) {
         currentRun++;
         if (currentRun > maxStreak) maxStreak = currentRun;
@@ -272,9 +294,15 @@ export const calculateOverallStreak = (
   }
   const frozenDates = new Set(freezeUsages.map((f) => f.date));
 
-  const earliestHabitCreated = activeHabits.reduce(
+  // Precompute effective start dates для каждой привычки. Если у привычки
+  // есть backdated completion ДО createdAt, эффективное начало смещается
+  // назад — иначе overall streak не учтёт backdated дни.
+  const startDates = new Map(
+    activeHabits.map((h) => [h.id, getEffectiveStartDate(h, logs)] as const)
+  );
+  const earliestStart = activeHabits.reduce(
     (min, h) => {
-      const d = format(h.createdAt, 'yyyy-MM-dd');
+      const d = startDates.get(h.id)!;
       return d < min ? d : min;
     },
     endDate
@@ -290,13 +318,13 @@ export const calculateOverallStreak = (
   let cursor = endDate;
 
   for (let i = 0; i < maxDays; i++) {
-    if (cursor < earliestHabitCreated) break;
+    if (cursor < earliestStart) break;
 
     if (frozenDates.has(cursor)) {
       streak++;
     } else {
       const dueHabits = activeHabits.filter((h) =>
-        isHabitDue(h, cursor, logs, referenceDates.get(h.id))
+        isHabitDue(h, cursor, logs, referenceDates.get(h.id), startDates.get(h.id))
       );
       if (dueHabits.length === 0) {
         // Нейтральный день, не меняем streak.
@@ -405,15 +433,15 @@ export const countHabitConsecutiveMissedDueDays = (
   const completedDates = new Set(
     logs.filter((l) => l.habitId === habit.id && l.completed).map((l) => l.date)
   );
-  const habitCreatedDate = format(habit.createdAt, 'yyyy-MM-dd');
+  const startDate = getEffectiveStartDate(habit, logs);
 
   let missed = 0;
   let cursor = todayDate;
 
   for (let i = 0; i < maxDays; i++) {
-    if (cursor < habitCreatedDate) break;
+    if (cursor < startDate) break;
 
-    if (isHabitDue(habit, cursor, logs)) {
+    if (isHabitDue(habit, cursor, logs, undefined, startDate)) {
       if (completedDates.has(cursor)) break;
       missed++;
     }
