@@ -113,13 +113,14 @@ export const calculatePerHabitStreak = (
   const habitCreatedDate = format(habit.createdAt, 'yyyy-MM-dd');
   const referenceDate = getHabitReferenceDate(habit, logs);
   let streak = 0;
-  let cursor = endDate;
+  const cursor = parse(endDate, 'yyyy-MM-dd', new Date());
 
   for (let i = 0; i < maxDays; i++) {
-    if (cursor < habitCreatedDate) break;
+    const cursorStr = format(cursor, 'yyyy-MM-dd');
+    if (cursorStr < habitCreatedDate) break;
 
-    if (isHabitDue(habit, cursor, logs, referenceDate)) {
-      if (completedDates.has(cursor) || frozenDates.has(cursor)) {
+    if (isHabitDue(habit, cursorStr, logs, referenceDate)) {
+      if (completedDates.has(cursorStr) || frozenDates.has(cursorStr)) {
         streak++;
       } else {
         // Due-день без completion и без freeze → streak обрывается.
@@ -128,10 +129,107 @@ export const calculatePerHabitStreak = (
     }
     // Non-due день — пропускаем, streak не меняется.
 
-    cursor = format(subDays(parse(cursor, 'yyyy-MM-dd', new Date()), 1), 'yyyy-MM-dd');
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
   }
 
   return streak;
+};
+
+/**
+ * Лояльная версия `calculatePerHabitStreak` для UI «текущего стрика».
+ *
+ * Если `endDate` (обычно today) — due-день и НЕ покрыт completion/freeze,
+ * пропускаем именно его («открытый период», у юзера ещё есть остаток дня
+ * чтобы отметить) и продолжаем считать назад. Эквивалентно
+ * `max(calculatePerHabitStreak(today), calculatePerHabitStreak(yesterday))`
+ * за один проход.
+ *
+ * Если `endDate` non-due (например выходной у weekdays-привычки), grace НЕ
+ * переносится на следующий встреченный due-день — иначе мы бы прощали
+ * вчерашний пропуск через целые выходные.
+ */
+export const calculatePerHabitStreakLenient = (
+  habit: StreakHabit,
+  logs: StreakHabitLog[],
+  freezeUsages: StreakFreezeUsage[],
+  endDate: string,
+  maxDays: number = 365
+): number => {
+  if (!habit.isActive) return 0;
+
+  const completedDates = new Set(
+    logs.filter((l) => l.habitId === habit.id && l.completed).map((l) => l.date)
+  );
+  const frozenDates = new Set(freezeUsages.map((f) => f.date));
+
+  const habitCreatedDate = format(habit.createdAt, 'yyyy-MM-dd');
+  const referenceDate = getHabitReferenceDate(habit, logs);
+  let streak = 0;
+  const cursor = parse(endDate, 'yyyy-MM-dd', new Date());
+
+  for (let i = 0; i < maxDays; i++) {
+    const cursorStr = format(cursor, 'yyyy-MM-dd');
+    if (cursorStr < habitCreatedDate) break;
+
+    if (isHabitDue(habit, cursorStr, logs, referenceDate)) {
+      if (completedDates.has(cursorStr) || frozenDates.has(cursorStr)) {
+        streak++;
+      } else if (i === 0) {
+        // endDate due, но ещё не отмечен — open period, пропускаем
+        // только эту первую итерацию, дальше обрыв строгий.
+      } else {
+        break;
+      }
+    }
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+
+  return streak;
+};
+
+/**
+ * Рассчитывает максимальный per-habit streak за всю историю привычки.
+ *
+ * Идём от habit.createdAt до endDate, день за днём. Для каждой due-даты
+ * проверяем completion log или freeze. Если есть — текущий run++. Если нет —
+ * фиксируем max(maxStreak, currentRun) и обнуляем run. Non-due дни не меняют
+ * счётчик (так же как в calculatePerHabitStreak).
+ */
+export const calculatePerHabitMaxStreak = (
+  habit: StreakHabit,
+  logs: StreakHabitLog[],
+  freezeUsages: StreakFreezeUsage[],
+  endDate: string
+): number => {
+  if (!habit.isActive) return 0;
+
+  const completedDates = new Set(
+    logs.filter((l) => l.habitId === habit.id && l.completed).map((l) => l.date)
+  );
+  const frozenDates = new Set(freezeUsages.map((f) => f.date));
+
+  const habitCreatedDate = format(habit.createdAt, 'yyyy-MM-dd');
+  const referenceDate = getHabitReferenceDate(habit, logs);
+
+  let maxStreak = 0;
+  let currentRun = 0;
+  const cursor = parse(habitCreatedDate, 'yyyy-MM-dd', new Date());
+
+  while (true) {
+    const cursorStr = format(cursor, 'yyyy-MM-dd');
+    if (cursorStr > endDate) break;
+    if (isHabitDue(habit, cursorStr, logs, referenceDate)) {
+      if (completedDates.has(cursorStr) || frozenDates.has(cursorStr)) {
+        currentRun++;
+        if (currentRun > maxStreak) maxStreak = currentRun;
+      } else {
+        currentRun = 0;
+      }
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return maxStreak;
 };
 
 /**

@@ -97,6 +97,12 @@ export type UserStats = {
   activeHabits: number;
   /** Всего выполнений */
   totalCompletions: number;
+  /** Текущий общий streak активности (с учётом freeze) */
+  overallStreak: number;
+  /** Сколько freeze в инвентаре */
+  freezeCount: number;
+  /** Готовый текстовый блок «графика активности» */
+  activityGraph: string;
   /** Статистика по каждой привычке */
   habitStats: HabitStats[];
 };
