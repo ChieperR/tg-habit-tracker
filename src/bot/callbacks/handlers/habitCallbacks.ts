@@ -75,6 +75,11 @@ export const handleHabitToggle = async (
       newStatus ? '↩️ Отменить' : '✅ Выполнено',
       serializeCallback({ type: 'habit_toggle', habitId, source: 'habit_reminder' })
     );
+    if (newStatus) {
+      toggleKeyboard
+        .row()
+        .text('📝 Мои привычки', serializeCallback({ type: 'habits_list' }));
+    }
 
     await safeEditMessage(ctx, doneText, {
       parse_mode: 'Markdown',
