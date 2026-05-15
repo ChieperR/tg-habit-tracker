@@ -69,17 +69,13 @@ export const tryEarnFreezes = async (
     });
     if (!user) return { kind: 'no_earn' } as EarnResult;
 
-    // Если стрик упал ниже последнего checkpoint'а — стрик был сломан.
-    // Сбрасываем checkpoint в 0, чтобы новый цикл из 5 дней снова мог
-    // давать freeze.
-    let effectiveCheckpoint = user.lastFreezeEarnStreakDay;
-    if (currentOverallStreak < effectiveCheckpoint) {
-      effectiveCheckpoint = 0;
-      await tx.user.update({
-        where: { id: userId },
-        data: { lastFreezeEarnStreakDay: 0 },
-      });
-    }
+    // ВАЖНО: НЕ сбрасываем checkpoint при `currentOverallStreak < lastFreezeEarnStreakDay`.
+    // Раньше тут был reset, но он триггерился при ЛЮБОМ пересчёте overall streak
+    // (например при удалении привычки, при unmark backdated отметки), что приводило
+    // к выдаче freeze дважды за один и тот же milestone. Реальный сброс checkpoint
+    // делается только в `autoApplyFreezesForMissedDays` cron'е, когда юзер реально
+    // пропустил день без покрытия freeze.
+    const effectiveCheckpoint = user.lastFreezeEarnStreakDay;
 
     const nextCheckpoint = effectiveCheckpoint + FREEZE_EARN_INTERVAL_DAYS;
     if (currentOverallStreak < nextCheckpoint) {
