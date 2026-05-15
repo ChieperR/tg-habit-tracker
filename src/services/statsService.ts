@@ -230,9 +230,9 @@ export const generateActivityGraph = async (
   const today = getTodayDate(timezoneOffset);
   const todayDate = parse(today, 'yyyy-MM-dd', new Date());
 
-  // Сетка: 13 недель, последняя — текущая (заканчивается на todayDate).
-  // Начинаем с понедельника недели 12-недельной давности.
-  const weeks = 13;
+  // Сетка: 12 недель, последняя — текущая (заканчивается на todayDate).
+  // 12 квадратиков влезают в ширину экрана айфонов без переноса.
+  const weeks = 12;
   const currentMonday = startOfWeek(todayDate, { weekStartsOn: 1 });
   const firstMonday = subWeeks(currentMonday, weeks - 1);
 
