@@ -22,7 +22,7 @@ export const handleStats = async (ctx: BotContext): Promise<void> => {
   const timezoneOffset = user.timezoneOffset ?? undefined;
   const stats = await getUserStats(user.id, timezoneOffset);
   void trackEvent(user.id, 'view_stats');
-  const message = await formatStatsMessage(stats, user.id, timezoneOffset);
+  const message = formatStatsMessage(stats);
 
   await ctx.reply(message, {
     parse_mode: 'Markdown',
@@ -44,7 +44,7 @@ export const showStats = async (ctx: BotContext): Promise<void> => {
   const user = await findOrCreateUser(telegramId);
   const timezoneOffset = user.timezoneOffset ?? undefined;
   const stats = await getUserStats(user.id, timezoneOffset);
-  const message = await formatStatsMessage(stats, user.id, timezoneOffset);
+  const message = formatStatsMessage(stats);
 
   await ctx.editMessageText(message, {
     parse_mode: 'Markdown',

@@ -2,9 +2,11 @@ import { prisma } from '../db/index.js';
 import { HabitStats, UserStats } from '../types/index.js';
 import { getLastNDays, getTodayDate } from '../utils/date.js';
 import { escapeMarkdown } from '../utils/telegram.js';
-import { format, subDays, subWeeks, startOfWeek, addDays, parse } from 'date-fns';
+import { format, subWeeks, startOfWeek, addDays, parse } from 'date-fns';
 import {
   calculateOverallStreak,
+  calculatePerHabitStreakLenient,
+  calculatePerHabitMaxStreak,
   type StreakHabit,
   type StreakHabitLog,
   type StreakFreezeUsage,
@@ -16,163 +18,63 @@ import { FREEZE_CAP } from './streak/freezeService.js';
  * @module services/statsService
  */
 
+const MONTH_NAMES_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+const WEEKDAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const ACTIVITY_GRID_WEEKS = 12;
+
 /**
- * Вычисляет текущий streak (дней подряд) для привычки
- * @param habitId - ID привычки
- * @param frequencyDays - Частота привычки в днях
- * @param timezoneOffset - Смещение часового пояса
- * @returns Количество дней подряд
+ * Pure: считает completionRate по уже загруженным логам.
+ * Берёт `lastNDays` (массив YYYY-MM-DD) и пересекает с completion-датами.
  */
-export const calculateCurrentStreak = async (
-  habitId: number,
+const computeCompletionRate = (
+  habitLogs: { date: string; completed: boolean }[],
   frequencyDays: number,
-  timezoneOffset: number = 180
-): Promise<number> => {
-  const today = getTodayDate(timezoneOffset);
-
-  // Получаем все успешные выполнения, отсортированные по дате (новые первые)
-  const completedLogs = await prisma.habitLog.findMany({
-    where: { habitId, completed: true },
-    orderBy: { date: 'desc' },
-  });
-
-  if (completedLogs.length === 0) {
-    return 0;
-  }
-
-  let streak = 0;
-  let expectedDate = new Date(today);
-
-  for (const log of completedLogs) {
-    const logDate = new Date(log.date);
-    const diffDays = Math.floor(
-      (expectedDate.getTime() - logDate.getTime()) / (1000 * 60 * 60 * 24)
-    );
-
-    // Для привычек с frequencyDays > 1, проверяем в пределах допустимого интервала
-    if (diffDays <= frequencyDays && diffDays >= 0) {
-      streak++;
-      // Следующая ожидаемая дата — на frequencyDays раньше
-      expectedDate = new Date(logDate.getTime() - frequencyDays * 24 * 60 * 60 * 1000);
-    } else if (diffDays > frequencyDays) {
-      // Цепочка прервана
-      break;
-    }
-    // Если diffDays < 0, значит дата в будущем — пропускаем
-  }
-
-  return streak;
-};
-
-/**
- * Вычисляет максимальный streak для привычки
- * @param habitId - ID привычки
- * @param frequencyDays - Частота привычки в днях
- * @returns Максимальное количество дней подряд
- */
-export const calculateMaxStreak = async (
-  habitId: number,
-  frequencyDays: number
-): Promise<number> => {
-  const completedLogs = await prisma.habitLog.findMany({
-    where: { habitId, completed: true },
-    orderBy: { date: 'asc' },
-  });
-
-  if (completedLogs.length === 0) {
-    return 0;
-  }
-
-  let maxStreak = 1;
-  let currentStreak = 1;
-
-  for (let i = 1; i < completedLogs.length; i++) {
-    const prevLog = completedLogs[i - 1];
-    const currentLog = completedLogs[i];
-
-    if (!prevLog || !currentLog) continue;
-
-    const prevDate = new Date(prevLog.date);
-    const currDate = new Date(currentLog.date);
-    const diffDays = Math.floor(
-      (currDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24)
-    );
-
-    if (diffDays <= frequencyDays) {
-      currentStreak++;
-      maxStreak = Math.max(maxStreak, currentStreak);
-    } else {
-      currentStreak = 1;
-    }
-  }
-
-  return maxStreak;
-};
-
-/**
- * Вычисляет процент выполнения привычки за последние N дней
- * @param habitId - ID привычки
- * @param frequencyDays - Частота привычки
- * @param days - Количество дней для анализа
- * @param timezoneOffset - Смещение часового пояса
- * @returns Процент выполнения (0-100)
- */
-export const calculateCompletionRate = async (
-  habitId: number,
-  frequencyDays: number,
-  days: number = 30,
-  timezoneOffset: number = 180
-): Promise<number> => {
-  const lastNDays = getLastNDays(days, timezoneOffset);
-
-  // Сколько раз привычка должна была быть выполнена
-  const expectedCompletions = Math.ceil(days / frequencyDays);
-
-  const completedCount = await prisma.habitLog.count({
-    where: {
-      habitId,
-      completed: true,
-      date: { in: lastNDays },
-    },
-  });
-
-  if (expectedCompletions === 0) {
-    return 100;
-  }
-
+  lastNDays: string[]
+): number => {
+  const expectedCompletions = Math.ceil(lastNDays.length / frequencyDays);
+  if (expectedCompletions === 0) return 100;
+  const window = new Set(lastNDays);
+  const completedCount = habitLogs.filter((l) => l.completed && window.has(l.date)).length;
   return Math.round((completedCount / expectedCompletions) * 100);
 };
 
 /**
- * Получает статистику по одной привычке
- * @param habitId - ID привычки
- * @param timezoneOffset - Смещение часового пояса
- * @returns Статистика привычки
+ * Pure: собирает per-habit stats из уже загруженных логов и freeze-usage.
  */
-export const getHabitStats = async (
-  habitId: number,
-  timezoneOffset: number = 180
-): Promise<HabitStats | null> => {
-  const habit = await prisma.habit.findUnique({
-    where: { id: habitId },
-  });
+const computeHabitStats = (
+  habit: {
+    id: number;
+    name: string;
+    emoji: string;
+    frequencyType: string;
+    frequencyDays: number;
+    weekdays: string | null;
+    createdAt: Date;
+    isActive: boolean;
+  },
+  allLogs: StreakHabitLog[],
+  allFreezes: StreakFreezeUsage[],
+  todayDate: string,
+  lastNDays: string[]
+): HabitStats => {
+  const ownLogs = allLogs.filter((l) => l.habitId === habit.id);
+  const totalCompleted = ownLogs.filter((l) => l.completed).length;
 
-  if (!habit) {
-    return null;
-  }
+  const streakHabit: StreakHabit = {
+    id: habit.id,
+    frequencyType: habit.frequencyType,
+    frequencyDays: habit.frequencyDays,
+    weekdays: habit.weekdays,
+    createdAt: habit.createdAt,
+    isActive: habit.isActive,
+  };
 
-  const totalCompleted = await prisma.habitLog.count({
-    where: { habitId, completed: true },
-  });
-
-  const [currentStreak, maxStreak, completionRate] = await Promise.all([
-    calculateCurrentStreak(habitId, habit.frequencyDays, timezoneOffset),
-    calculateMaxStreak(habitId, habit.frequencyDays),
-    calculateCompletionRate(habitId, habit.frequencyDays, 30, timezoneOffset),
-  ]);
+  const currentStreak = calculatePerHabitStreakLenient(streakHabit, allLogs, allFreezes, todayDate);
+  const maxStreak = calculatePerHabitMaxStreak(streakHabit, allLogs, allFreezes, todayDate);
+  const completionRate = computeCompletionRate(ownLogs, habit.frequencyDays, lastNDays);
 
   return {
-    habitId,
+    habitId: habit.id,
     name: habit.name,
     emoji: habit.emoji,
     totalCompleted,
@@ -183,144 +85,56 @@ export const getHabitStats = async (
 };
 
 /**
- * Получает общую статистику пользователя
- * @param userId - ID пользователя в БД
- * @param timezoneOffset - Смещение часового пояса
- * @returns Общая статистика
+ * Pure: рендерит график активности по списку дат с выполнением.
+ * Сетка ACTIVITY_GRID_WEEKS недель, последняя — текущая.
  */
-export const getUserStats = async (
-  userId: number,
-  timezoneOffset: number = 180
-): Promise<UserStats> => {
-  const habits = await prisma.habit.findMany({
-    where: { userId },
-  });
+const renderActivityGraph = (
+  activeDates: Set<string>,
+  todayDate: string
+): string => {
+  const today = parse(todayDate, 'yyyy-MM-dd', new Date());
+  const currentMonday = startOfWeek(today, { weekStartsOn: 1 });
+  const firstMonday = subWeeks(currentMonday, ACTIVITY_GRID_WEEKS - 1);
 
-  const activeHabits = habits.filter((h) => h.isActive);
-
-  const totalCompletions = await prisma.habitLog.count({
-    where: {
-      habit: { userId },
-      completed: true,
-    },
-  });
-
-  const habitStats = await Promise.all(
-    activeHabits.map((h) => getHabitStats(h.id, timezoneOffset))
-  );
-
-  return {
-    totalHabits: habits.length,
-    activeHabits: activeHabits.length,
-    totalCompletions,
-    habitStats: habitStats.filter((s): s is HabitStats => s !== null),
-  };
-};
-
-/**
- * Генерирует график активности в стиле GitHub contributions
- * @param userId - ID пользователя
- * @param timezoneOffset - Смещение часового пояса
- * @returns Строка с графиком активности
- */
-export const generateActivityGraph = async (
-  userId: number,
-  timezoneOffset: number = 180
-): Promise<string> => {
-  const today = getTodayDate(timezoneOffset);
-  const todayDate = parse(today, 'yyyy-MM-dd', new Date());
-
-  // Сетка: 12 недель, последняя — текущая (заканчивается на todayDate).
-  // 12 квадратиков влезают в ширину экрана айфонов без переноса.
-  const weeks = 12;
-  const currentMonday = startOfWeek(todayDate, { weekStartsOn: 1 });
-  const firstMonday = subWeeks(currentMonday, weeks - 1);
-
-  // Получаем все даты с выполнением хотя бы одной привычки в диапазоне сетки
-  const completedLogs = await prisma.habitLog.findMany({
-    where: {
-      habit: { userId, isActive: true },
-      completed: true,
-      date: {
-        gte: format(firstMonday, 'yyyy-MM-dd'),
-        lte: today,
-      },
-    },
-    select: { date: true },
-  });
-
-  // Set для быстрой проверки (день активен если хотя бы одна привычка выполнена)
-  const activeDates = new Set(completedLogs.map(log => log.date));
-
-  // Матрица активности: null = клетку не рисуем (день ещё не наступил),
-  // boolean = есть/нет выполнения
-  const grid: (boolean | null)[][] = [];
-
-  for (let week = 0; week < weeks; week++) {
-    const weekRow: (boolean | null)[] = [];
-    for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
-      const checkDate = addDays(firstMonday, week * 7 + dayOfWeek);
-      if (checkDate > todayDate) {
-        weekRow.push(null);
-      } else {
-        weekRow.push(activeDates.has(format(checkDate, 'yyyy-MM-dd')));
-      }
-    }
-    grid.push(weekRow);
-  }
-
-  // Заголовок: диапазон от первого понедельника до сегодня (короткие месяцы)
-  const monthNames = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
   const startDay = firstMonday.getDate();
-  const startMonth = monthNames[firstMonday.getMonth()];
-  const endDay = todayDate.getDate();
-  const endMonth = monthNames[todayDate.getMonth()];
+  const startMonth = MONTH_NAMES_SHORT[firstMonday.getMonth()];
+  const endDay = today.getDate();
+  const endMonth = MONTH_NAMES_SHORT[today.getMonth()];
 
   let graph = `📊 *Активность* (${startDay} ${startMonth} — ${endDay} ${endMonth})\n\n`;
 
-  const weekdayLabels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-
   for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
-    const dayLabel = `\`${weekdayLabels[dayOfWeek] ?? ''}\``;
+    const dayLabel = `\`${WEEKDAY_LABELS[dayOfWeek] ?? ''}\``;
     let row = `${dayLabel} `;
-
-    for (let week = 0; week < weeks; week++) {
-      const cell = grid[week]?.[dayOfWeek];
-      if (cell === null || cell === undefined) {
-        continue;
-      }
-      row += cell ? '🟩' : '⬜';
+    for (let week = 0; week < ACTIVITY_GRID_WEEKS; week++) {
+      const checkDate = addDays(firstMonday, week * 7 + dayOfWeek);
+      if (checkDate > today) continue;
+      const dateStr = format(checkDate, 'yyyy-MM-dd');
+      row += activeDates.has(dateStr) ? '🟩' : '⬜';
     }
     graph += row + '\n';
   }
 
   graph += '\n🟩 — выполнено  ⬜ — нет';
-
   return graph;
 };
 
 /**
- * Форматирует статистику для отображения в сообщении
- * @param stats - Статистика пользователя
+ * Загружает все данные пользователя одним «пакетом» и считает всю
+ * статистику через pure-функции. Один проход по логам/freeze'ам.
+ *
  * @param userId - ID пользователя в БД
  * @param timezoneOffset - Смещение часового пояса
- * @returns Отформатированное сообщение
+ * @returns Полная статистика пользователя со встроенным графиком
  */
-export const formatStatsMessage = async (
-  stats: UserStats,
+export const getUserStats = async (
   userId: number,
   timezoneOffset: number = 180
-): Promise<string> => {
-  if (stats.activeHabits === 0) {
-    return '📊 *Статистика*\n\nУ тебя пока нет привычек. Добавь первую! ✨';
-  }
+): Promise<UserStats> => {
+  const todayDate = getTodayDate(timezoneOffset);
+  const lastNDays = getLastNDays(30, timezoneOffset);
 
-  let message = '📊 *Твоя статистика*\n\n';
-  message += `📝 Активных привычек: *${stats.activeHabits}*\n`;
-  message += `✅ Всего выполнений: *${stats.totalCompletions}*\n`;
-
-  // Overall activity streak + freezes inventory
-  const [user, habits, logs, freezes] = await Promise.all([
+  const [user, habits, allLogsRaw, allFreezesRaw] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: { freezeCount: true },
@@ -336,29 +150,61 @@ export const formatStatsMessage = async (
     }),
   ]);
 
-  if (user && habits.length > 0) {
-    const todayDate = getTodayDate(timezoneOffset);
-    const overallStreak = calculateOverallStreak(
-      habits as StreakHabit[],
-      logs as StreakHabitLog[],
-      freezes as StreakFreezeUsage[],
-      todayDate
-    );
-    message += `🔥 Общий стрик активности: *${overallStreak}* дн.\n`;
-    message += `🧊 Заморозки: *${user.freezeCount}/${FREEZE_CAP}*\n`;
-  }
-  message += '\n';
+  const allLogs: StreakHabitLog[] = allLogsRaw;
+  const allFreezes: StreakFreezeUsage[] = allFreezesRaw;
 
-  // Добавляем график активности
-  const graph = await generateActivityGraph(userId, timezoneOffset);
-  message += graph + '\n';
+  const activeHabits = habits.filter((h) => h.isActive);
+  const totalCompletions = allLogs.filter((l) => l.completed).length;
+
+  const habitStats: HabitStats[] = activeHabits.map((h) =>
+    computeHabitStats(h, allLogs, allFreezes, todayDate, lastNDays)
+  );
+
+  const overallStreak =
+    habits.length > 0
+      ? calculateOverallStreak(habits, allLogs, allFreezes, todayDate)
+      : 0;
+
+  // Активные дни для графика — все даты, где есть completion хотя бы по одной
+  // активной привычке. Старая версия фильтровала по `habit.isActive`, делаем
+  // так же.
+  const activeHabitIds = new Set(activeHabits.map((h) => h.id));
+  const activeDates = new Set(
+    allLogs.filter((l) => l.completed && activeHabitIds.has(l.habitId)).map((l) => l.date)
+  );
+
+  return {
+    totalHabits: habits.length,
+    activeHabits: activeHabits.length,
+    totalCompletions,
+    overallStreak,
+    freezeCount: user?.freezeCount ?? 0,
+    activityGraph: renderActivityGraph(activeDates, todayDate),
+    habitStats,
+  };
+};
+
+/**
+ * Pure-форматирование сообщения статистики. Все данные уже посчитаны в
+ * `getUserStats` — здесь только сборка строки, без БД запросов.
+ */
+export const formatStatsMessage = (stats: UserStats): string => {
+  if (stats.activeHabits === 0) {
+    return '📊 *Статистика*\n\nУ тебя пока нет привычек. Добавь первую! ✨';
+  }
+
+  let message = '📊 *Твоя статистика*\n\n';
+  message += `📝 Активных привычек: *${stats.activeHabits}*\n`;
+  message += `✅ Всего выполнений: *${stats.totalCompletions}*\n`;
+  message += `🔥 Общий стрик активности: *${stats.overallStreak}* дн.\n`;
+  message += `🧊 Заморозки: *${stats.freezeCount}/${FREEZE_CAP}*\n\n`;
+
+  message += stats.activityGraph + '\n';
   message += '━━━━━━━━━━━━━━━\n\n';
 
   for (const habit of stats.habitStats) {
     const recordSuffix =
-      habit.currentStreak < habit.maxStreak
-        ? ` (Рекорд: ${habit.maxStreak})`
-        : '';
+      habit.currentStreak < habit.maxStreak ? ` (Рекорд: ${habit.maxStreak})` : '';
     message += `${habit.emoji} *${escapeMarkdown(habit.name)}*\n`;
     message += `   🔥 Стрик: ${habit.currentStreak} дн.${recordSuffix}\n`;
     message += `   📈 За 30 дней: ${habit.completionRate}%\n\n`;
