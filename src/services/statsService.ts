@@ -2,7 +2,7 @@ import { prisma } from '../db/index.js';
 import { HabitStats, UserStats } from '../types/index.js';
 import { getLastNDays, getTodayDate } from '../utils/date.js';
 import { escapeMarkdown } from '../utils/telegram.js';
-import { format, subDays, startOfWeek, addDays, parse } from 'date-fns';
+import { format, subDays, subWeeks, startOfWeek, addDays, parse } from 'date-fns';
 import {
   calculateOverallStreak,
   type StreakHabit,
@@ -230,55 +230,49 @@ export const generateActivityGraph = async (
   const today = getTodayDate(timezoneOffset);
   const todayDate = parse(today, 'yyyy-MM-dd', new Date());
 
-  // Последние 91 день (13 недель)
-  const daysCount = 91;
-  const startDate = subDays(todayDate, daysCount - 1);
+  // Сетка: 13 недель, последняя — текущая (заканчивается на todayDate).
+  // Начинаем с понедельника недели 12-недельной давности.
+  const weeks = 13;
+  const currentMonday = startOfWeek(todayDate, { weekStartsOn: 1 });
+  const firstMonday = subWeeks(currentMonday, weeks - 1);
 
-  // Получаем все даты с выполнением хотя бы одной привычки
+  // Получаем все даты с выполнением хотя бы одной привычки в диапазоне сетки
   const completedLogs = await prisma.habitLog.findMany({
     where: {
       habit: { userId, isActive: true },
       completed: true,
       date: {
-        gte: format(startDate, 'yyyy-MM-dd'),
+        gte: format(firstMonday, 'yyyy-MM-dd'),
         lte: today,
       },
     },
     select: { date: true },
   });
 
-  // Создаём Set для быстрой проверки (день активен если хотя бы одна привычка выполнена)
+  // Set для быстрой проверки (день активен если хотя бы одна привычка выполнена)
   const activeDates = new Set(completedLogs.map(log => log.date));
 
-  // Создаём матрицу активности (13 недель × 7 дней)
-  // График: недели идут слева направо, дни недели сверху вниз
-  const weeks = 13;
-  const grid: boolean[][] = [];
+  // Матрица активности: null = клетку не рисуем (день ещё не наступил),
+  // boolean = есть/нет выполнения
+  const grid: (boolean | null)[][] = [];
 
-  // Находим начало первой недели (понедельник)
-  const firstMonday = startOfWeek(startDate, { weekStartsOn: 1 });
-
-  // Заполняем сетку: каждая строка = неделя, каждая колонка = день недели
   for (let week = 0; week < weeks; week++) {
-    const weekRow: boolean[] = [];
+    const weekRow: (boolean | null)[] = [];
     for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
       const checkDate = addDays(firstMonday, week * 7 + dayOfWeek);
-      const dateStr = format(checkDate, 'yyyy-MM-dd');
-
-      // Проверяем, не выходим ли за пределы сегодня и не раньше startDate
-      if (checkDate >= startDate && checkDate <= todayDate) {
-        weekRow.push(activeDates.has(dateStr));
+      if (checkDate > todayDate) {
+        weekRow.push(null);
       } else {
-        weekRow.push(false);
+        weekRow.push(activeDates.has(format(checkDate, 'yyyy-MM-dd')));
       }
     }
     grid.push(weekRow);
   }
 
-  // Заголовок с диапазоном дат (короткие названия месяцев)
+  // Заголовок: диапазон от первого понедельника до сегодня (короткие месяцы)
   const monthNames = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
-  const startDay = startDate.getDate();
-  const startMonth = monthNames[startDate.getMonth()];
+  const startDay = firstMonday.getDate();
+  const startMonth = monthNames[firstMonday.getMonth()];
   const endDay = todayDate.getDate();
   const endMonth = monthNames[todayDate.getMonth()];
 
@@ -291,8 +285,11 @@ export const generateActivityGraph = async (
     let row = `${dayLabel} `;
 
     for (let week = 0; week < weeks; week++) {
-      const isActive = grid[week]?.[dayOfWeek] ?? false;
-      row += isActive ? '🟩' : '⬜';
+      const cell = grid[week]?.[dayOfWeek];
+      if (cell === null || cell === undefined) {
+        continue;
+      }
+      row += cell ? '🟩' : '⬜';
     }
     graph += row + '\n';
   }

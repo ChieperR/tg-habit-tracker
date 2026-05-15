@@ -32,3 +32,6 @@ npm-debug.log*
 # Test coverage
 coverage/
 test-evening.ts
+
+# Local mascot/design assets (not part of the repo)
+assets/
