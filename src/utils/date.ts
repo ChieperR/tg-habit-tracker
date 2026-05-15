@@ -7,12 +7,9 @@ import {
   format,
   subDays,
   addDays,
-  addWeeks,
   differenceInDays,
   getDay,
   parse,
-  eachDayOfInterval,
-  startOfWeek,
 } from 'date-fns';
 
 /**
@@ -22,24 +19,38 @@ import {
 export const DEFAULT_TIMEZONE_OFFSET = 180;
 
 /**
- * Получает текущую дату в часовом поясе пользователя
+ * Возвращает Date, у которого UTC-аксессоры (getUTCHours, getUTCDate, ...)
+ * показывают локальное время юзера. Не зависит от часового пояса процесса.
+ *
+ * Контракт всего файла: «время юзера» читаем только через `.getUTC*()`
+ * методы возвращённой Date. Никаких `.getHours()` / `.getDate()` /
+ * date-fns `format()` на этом объекте — они интерпретируют Date в
+ * локальной TZ процесса и сломаются на не-UTC хосте.
+ *
  * @param timezoneOffset - Смещение часового пояса в минутах от UTC
- * @returns Date объект в часовом поясе пользователя
+ * @returns Date, UTC-поля которого равны локальному времени юзера
  */
 export const getNowInTimezone = (timezoneOffset: number = DEFAULT_TIMEZONE_OFFSET): Date => {
-  const now = new Date();
-  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-  return new Date(utc + timezoneOffset * 60000);
+  return new Date(Date.now() + timezoneOffset * 60000);
 };
 
 /**
- * Минут с начала суток в timezone юзера (0..1439). Использует
- * UTC-аксессоры на сдвинутой Date — это TZ-нейтрально, не зависит от
- * часового пояса процесса.
+ * Форматирует Date как YYYY-MM-DD через UTC-аксессоры.
+ * Используется на Date, у которой UTC-поля = время юзера (см. getNowInTimezone).
+ */
+const formatYMDUtc = (d: Date): string => {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+/**
+ * Минут с начала суток в timezone юзера (0..1439). UTC-аксессоры на
+ * сдвинутой Date — TZ-нейтрально, не зависит от часового пояса процесса.
  *
  * Используется и в установке reminderTime (`updateHabitReminder`), и в
- * scheduler'е — чтобы оба тракта совпадали посимвольно и не было
- * расхождений на пограничных минутах.
+ * scheduler'е — чтобы оба тракта совпадали посимвольно.
  *
  * @param timezoneOffset - Смещение часового пояса юзера в минутах от UTC
  * @returns Минут с полуночи (0..1439)
@@ -47,21 +58,21 @@ export const getNowInTimezone = (timezoneOffset: number = DEFAULT_TIMEZONE_OFFSE
 export const getCurrentMinutesInTimezone = (
   timezoneOffset: number = DEFAULT_TIMEZONE_OFFSET
 ): number => {
-  const userNow = getNowInTimezone(timezoneOffset);
-  return userNow.getUTCHours() * 60 + userNow.getUTCMinutes();
+  const d = getNowInTimezone(timezoneOffset);
+  return d.getUTCHours() * 60 + d.getUTCMinutes();
 };
 
 /**
- * Получает текущую дату в формате YYYY-MM-DD
+ * Получает текущую дату в формате YYYY-MM-DD в часовом поясе пользователя
  * @param timezoneOffset - Смещение часового пояса в минутах от UTC
  * @returns Строка даты в формате YYYY-MM-DD
  */
 export const getTodayDate = (timezoneOffset: number = DEFAULT_TIMEZONE_OFFSET): string => {
-  return format(getNowInTimezone(timezoneOffset), 'yyyy-MM-dd');
+  return formatYMDUtc(getNowInTimezone(timezoneOffset));
 };
 
 /**
- * Получает дату N дней назад
+ * Получает дату N дней назад в часовом поясе пользователя
  * @param days - Количество дней назад
  * @param timezoneOffset - Смещение часового пояса
  * @returns Строка даты в формате YYYY-MM-DD
@@ -70,8 +81,7 @@ export const getDateDaysAgo = (
   days: number,
   timezoneOffset: number = DEFAULT_TIMEZONE_OFFSET
 ): string => {
-  const now = getNowInTimezone(timezoneOffset);
-  return format(subDays(now, days), 'yyyy-MM-dd');
+  return formatYMDUtc(new Date(Date.now() + timezoneOffset * 60000 - days * 86400000));
 };
 
 /**
@@ -187,11 +197,11 @@ export const getNextDueDay = (weekdays: string, todayDate: string): string => {
  * @returns Массив дат в формате YYYY-MM-DD (от старых к новым)
  */
 export const getLastNDays = (days: number, timezoneOffset: number = 180): string[] => {
-  const now = getNowInTimezone(timezoneOffset);
-  const startDate = subDays(now, days - 1);
-  
-  const interval = eachDayOfInterval({ start: startDate, end: now });
-  return interval.map(date => format(date, 'yyyy-MM-dd'));
+  const result: string[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    result.push(getDateDaysAgo(i, timezoneOffset));
+  }
+  return result;
 };
 
 /**
@@ -264,9 +274,12 @@ export const getWeekStartMonday = (
   offsetWeeks: number = 0
 ): string => {
   const now = getNowInTimezone(timezoneOffset);
-  const monday = startOfWeek(now, { weekStartsOn: 1 });
-  const week = offsetWeeks === 0 ? monday : addWeeks(monday, offsetWeeks);
-  return format(week, 'yyyy-MM-dd');
+  const todayDow = now.getUTCDay(); // 0=Вс, 1=Пн, ..., 6=Сб
+  const daysSinceMonday = (todayDow + 6) % 7; // Пн → 0, Вт → 1, ..., Вс → 6
+  const totalDaysOffset = -daysSinceMonday + offsetWeeks * 7;
+  return formatYMDUtc(
+    new Date(Date.now() + timezoneOffset * 60000 + totalDaysOffset * 86400000)
+  );
 };
 
 const MONTH_NAMES_RU = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
