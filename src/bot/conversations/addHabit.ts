@@ -6,6 +6,7 @@ import { createMainMenuKeyboard, createFrequencyTypeKeyboard, createEmojiKeyboar
 import { serializeCallback } from '../../utils/callback.js';
 import { isHabitDueToday, getTodayDate, getNextDueDay } from '../../utils/date.js';
 import { formatScheduleText } from '../../utils/format.js';
+import { cancelConversationKeyboard, waitTextOrCancel } from './cancelHelper.js';
 
 /**
  * Диалог добавления новой привычки
@@ -45,11 +46,14 @@ export const addHabitConversation = async (
   // ===== Шаг 1: Название привычки =====
   await ctx.reply(
     '✨ *Добавление новой привычки*\n\nВведи название привычки:',
-    { parse_mode: 'Markdown' }
+    { parse_mode: 'Markdown', reply_markup: cancelConversationKeyboard() }
   );
 
-  const nameResponse = await conversation.waitFor('message:text');
-  const habitName = nameResponse.message.text;
+  const nameInput = await waitTextOrCancel(conversation);
+  if (nameInput === null) {
+    return;
+  }
+  const habitName = nameInput;
 
   if (habitName.startsWith('/')) {
     await ctx.reply('❌ Добавление отменено', {
@@ -132,12 +136,15 @@ export const addHabitConversation = async (
     // Спрашиваем количество дней
     await freqTypeResponse.editMessageText(
       `${emoji} *${habitName}*\n\nВведи число дней (например: 3):`,
-      { parse_mode: 'Markdown' }
+      { parse_mode: 'Markdown', reply_markup: cancelConversationKeyboard() }
     );
-    
-    const daysResponse = await conversation.waitFor('message:text');
-    const daysInput = parseInt(daysResponse.message.text, 10);
-    
+
+    const daysText = await waitTextOrCancel(conversation);
+    if (daysText === null) {
+      return;
+    }
+    const daysInput = parseInt(daysText, 10);
+
     if (isNaN(daysInput) || daysInput < 1 || daysInput > 365) {
       frequencyDays = 1; // Дефолт если ввели ерунду
     } else {

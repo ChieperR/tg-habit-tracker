@@ -31,6 +31,15 @@ export const handleCallback = async (ctx: BotContext): Promise<void> => {
     return; // conversation обработает
   }
 
+  // Кнопка «❌ Отмена» из conversation. Обычно ловится внутри активного
+  // conversation. Если докатилась до этого роутера — значит conversation
+  // уже закрылся (рестарт бота, истёк, race) — тихо acknowledge, чтобы
+  // у юзера не висел spinner на кнопке.
+  if (data === 'cancel_conv') {
+    await safeAnswerCallback(ctx);
+    return;
+  }
+
   // Settings callbacks
   if (data.startsWith('settings:')) {
     await handleSettingsCallback(ctx, data);

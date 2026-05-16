@@ -10,6 +10,7 @@ import { createMainMenuKeyboard, createSettingsKeyboard, createHabitDetailsKeybo
 import { parseCallback } from '../../utils/callback.js';
 import { formatSettingsMessage } from '../commands/settings.js';
 import { safeEditMessage, escapeMarkdown } from '../../utils/telegram.js';
+import { cancelConversationKeyboard, waitTextOrCancel } from './cancelHelper.js';
 
 const removeKeyboard: { remove_keyboard: true } = { remove_keyboard: true };
 
@@ -55,11 +56,14 @@ export const setMorningTimeConversation = async (
 
   await ctx.reply(
     `🌅 *Утреннее напоминание*\n\nТекущее время: *${user.morningTime}*\n\nВведи новое время в формате ЧЧ:ММ\n(например: 07:30 или 9:00)`,
-    { parse_mode: 'Markdown' }
+    { parse_mode: 'Markdown', reply_markup: cancelConversationKeyboard() }
   );
 
-  const response = await conversation.waitFor('message:text');
-  const input = response.message.text.trim();
+  const text = await waitTextOrCancel(conversation);
+  if (text === null) {
+    return;
+  }
+  const input = text.trim();
 
   if (input.startsWith('/')) {
     await ctx.reply('❌ Отменено', { reply_markup: createMainMenuKeyboard() });
@@ -75,7 +79,7 @@ export const setMorningTimeConversation = async (
   }
 
   const normalizedTime = normalizeTime(input);
-  await conversation.external(() => 
+  await conversation.external(() =>
     updateUserSettings(user.id, { morningTime: normalizedTime })
   );
 
@@ -99,11 +103,14 @@ export const setEveningTimeConversation = async (
 
   await ctx.reply(
     `🌙 *Вечернее напоминание*\n\nТекущее время: *${user.eveningTime}*\n\nВведи новое время в формате ЧЧ:ММ\n(например: 21:30 или 22:00)`,
-    { parse_mode: 'Markdown' }
+    { parse_mode: 'Markdown', reply_markup: cancelConversationKeyboard() }
   );
 
-  const response = await conversation.waitFor('message:text');
-  const input = response.message.text.trim();
+  const text = await waitTextOrCancel(conversation);
+  if (text === null) {
+    return;
+  }
+  const input = text.trim();
 
   if (input.startsWith('/')) {
     await ctx.reply('❌ Отменено', { reply_markup: createMainMenuKeyboard() });
@@ -119,7 +126,7 @@ export const setEveningTimeConversation = async (
   }
 
   const normalizedTime = normalizeTime(input);
-  await conversation.external(() => 
+  await conversation.external(() =>
     updateUserSettings(user.id, { eveningTime: normalizedTime })
   );
 
@@ -153,62 +160,77 @@ export const setTimezoneConversation = async (
     `🌍 *Часовой пояс*\n\nТекущий: *UTC${sign}${currentOffset}*\n\nОтправь геолокацию (второе сообщение ниже) или введи вручную:\n• Число от -12 до +14 (например: 3, +0, -5)\n• Или в формате UTC+3 / UTC-5`,
     { parse_mode: 'Markdown', reply_markup: cancelKeyboard }
   );
-  await ctx.reply('Или нажми кнопку ниже для геолокации:', {
+  const replyKbMsg = await ctx.reply('Или нажми кнопку ниже для геолокации:', {
     reply_markup: replyKeyboard,
   });
 
-  const response = await conversation.wait();
-  if (response.callbackQuery?.data === TZ_CANCEL_CALLBACK) {
-    await response.answerCallbackQuery('❌ Отменено');
-    const freshUser = await conversation.external(() => findOrCreateUser(telegramId!));
-    await ctx.reply('↩️ Возврат в настройки', { reply_markup: removeKeyboard });
-    await ctx.reply(formatSettingsMessage(freshUser.timezoneOffset), {
-      parse_mode: 'Markdown',
-      reply_markup: createSettingsKeyboard({
-        morningTime: freshUser.morningTime,
-        eveningTime: freshUser.eveningTime,
-        morningEnabled: freshUser.morningEnabled,
-        eveningEnabled: freshUser.eveningEnabled,
-        timezoneOffset: freshUser.timezoneOffset,
-      }),
-    });
-    return;
-  }
-
-  const msg = response.message;
-  if (!msg) {
-    await ctx.reply('Отправь геолокацию или введи часовой пояс.', {
-      reply_markup: removeKeyboard,
-    });
-    return;
-  }
-
-  if (msg.text?.startsWith('/')) {
-    await ctx.reply('❌ Отменено', { reply_markup: removeKeyboard });
-    return;
-  }
+  // Удаляет два sticky-сообщения wizard'а и снимает reply keyboard через
+  // ZWSP-flash сообщение, после которого ничего видимого в чате не остаётся.
+  const cleanupStickyMessages = async (cancelMsgId: number | null): Promise<void> => {
+    if (cancelMsgId !== null) {
+      try {
+        await ctx.api.deleteMessage(ctx.chat!.id, cancelMsgId);
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      await ctx.api.deleteMessage(replyKbMsg.chat.id, replyKbMsg.message_id);
+    } catch {
+      /* ignore */
+    }
+    try {
+      const flash = await ctx.reply('​', { reply_markup: removeKeyboard });
+      await ctx.api.deleteMessage(flash.chat.id, flash.message_id);
+    } catch {
+      /* ignore */
+    }
+  };
 
   let offsetMinutes: number | null = null;
+  let cancelInlineMsgId: number | null = null;
 
-  if (msg.location) {
-    offsetMinutes = getTimezoneOffsetFromLocation(
-      msg.location.latitude,
-      msg.location.longitude
+  // Цикл попыток ввода: повторяем пока юзер не введёт валидный TZ или не отменит.
+  while (true) {
+    const response = await conversation.wait();
+    if (response.callbackQuery?.data === TZ_CANCEL_CALLBACK) {
+      await response.answerCallbackQuery('❌ Отменено');
+      const inlineMsgId = response.callbackQuery.message?.message_id ?? null;
+      await cleanupStickyMessages(inlineMsgId);
+      return;
+    }
+
+    const msg = response.message;
+    if (!msg) continue;
+
+    if (msg.text?.startsWith('/')) {
+      await cleanupStickyMessages(cancelInlineMsgId);
+      return;
+    }
+
+    if (msg.location) {
+      offsetMinutes = getTimezoneOffsetFromLocation(
+        msg.location.latitude,
+        msg.location.longitude
+      );
+    } else if (msg.text) {
+      offsetMinutes = parseTimezoneFromText(msg.text);
+    }
+
+    if (offsetMinutes !== null) break;
+
+    const retryMsg = await ctx.reply(
+      '❌ Не удалось определить часовой пояс. Отправь геолокацию (кнопка ниже) или введи число от -12 до +14.',
+      { reply_markup: cancelKeyboard }
     );
-  } else if (msg.text) {
-    offsetMinutes = parseTimezoneFromText(msg.text);
+    cancelInlineMsgId = retryMsg.message_id;
   }
 
-  if (offsetMinutes === null) {
-    await ctx.reply(
-      '❌ Не удалось определить часовой пояс. Отправь геолокацию (кнопка ниже) или введи число от -12 до +14.'
-    );
-    return;
-  }
-
+  // Валидный TZ — сохраняем, чистим sticky-сообщения, шлём подтверждение.
   await conversation.external(() =>
     updateUserSettings(user.id, { timezoneOffset: offsetMinutes })
   );
+  await cleanupStickyMessages(cancelInlineMsgId);
 
   const hours = offsetMinutes / 60;
   const newSign = hours >= 0 ? '+' : '';
@@ -251,11 +273,14 @@ export const setHabitReminderConversation = async (
 
   await ctx.reply(
     `⏰ *Напоминание для ${habit.emoji} ${escapeMarkdown(habit.name)}*\n\n${currentLabel}Введи время в формате ЧЧ:ММ\n(например: 07:30 или 9:00)`,
-    { parse_mode: 'Markdown' }
+    { parse_mode: 'Markdown', reply_markup: cancelConversationKeyboard() }
   );
 
-  const response = await conversation.waitFor('message:text');
-  const input = response.message.text.trim();
+  const text = await waitTextOrCancel(conversation);
+  if (text === null) {
+    return;
+  }
+  const input = text.trim();
 
   if (input.startsWith('/')) {
     await ctx.reply('❌ Отменено', { reply_markup: createMainMenuKeyboard() });
