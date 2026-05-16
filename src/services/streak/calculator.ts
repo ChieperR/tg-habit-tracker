@@ -281,8 +281,11 @@ export const calculateOverallStreak = (
   endDate: string,
   maxDays: number = 365
 ): number => {
-  const activeHabits = habits.filter((h) => h.isActive);
-  if (activeHabits.length === 0) return 0;
+  // Overall streak считаем по ВСЕМ habits юзера (включая удалённые),
+  // потому что удаление привычки (soft delete `isActive=false`) НЕ должно
+  // ретроактивно ломать стрик: completion log существует, день был активным.
+  // Юзер уже мог получить freeze за этот стрик — отнимать его нельзя.
+  if (habits.length === 0) return 0;
 
   const completedByDate = new Map<string, Set<number>>();
   for (const log of logs) {
@@ -298,9 +301,9 @@ export const calculateOverallStreak = (
   // есть backdated completion ДО createdAt, эффективное начало смещается
   // назад — иначе overall streak не учтёт backdated дни.
   const startDates = new Map(
-    activeHabits.map((h) => [h.id, getEffectiveStartDate(h, logs)] as const)
+    habits.map((h) => [h.id, getEffectiveStartDate(h, logs)] as const)
   );
-  const earliestStart = activeHabits.reduce(
+  const earliestStart = habits.reduce(
     (min, h) => {
       const d = startDates.get(h.id)!;
       return d < min ? d : min;
@@ -311,7 +314,7 @@ export const calculateOverallStreak = (
   // Precompute reference dates для каждой привычки — не пересчитываем на
   // каждой итерации loop'а.
   const referenceDates = new Map(
-    activeHabits.map((h) => [h.id, getHabitReferenceDate(h, logs)] as const)
+    habits.map((h) => [h.id, getHabitReferenceDate(h, logs)] as const)
   );
 
   let streak = 0;
@@ -323,15 +326,27 @@ export const calculateOverallStreak = (
     if (frozenDates.has(cursor)) {
       streak++;
     } else {
-      const dueHabits = activeHabits.filter((h) =>
-        isHabitDue(h, cursor, logs, referenceDates.get(h.id), startDates.get(h.id))
+      // Раздельная семантика по active vs deleted:
+      // - Due-проверка только по active habits — у удалённой habit её мёртвые
+      //   due-дни не должны «требовать» отметки и ломать стрик.
+      // - Completion-учёт по всем habits — если на этот день есть completion
+      //   от удалённой habit, она всё равно делает день активным
+      //   (юзер делал привычку, значит день не был пустым).
+      const dueActiveHabits = habits.filter(
+        (h) =>
+          h.isActive &&
+          isHabitDue(h, cursor, logs, referenceDates.get(h.id), startDates.get(h.id))
       );
-      if (dueHabits.length === 0) {
-        // Нейтральный день, не меняем streak.
+      const completedSet = completedByDate.get(cursor) ?? new Set();
+      const anyCompletedToday = completedSet.size > 0;
+
+      if (dueActiveHabits.length === 0) {
+        // Active due нет. Если есть completion от удалённой habit — день активный.
+        // Иначе нейтрально (счётчик замирает).
+        if (anyCompletedToday) streak++;
       } else {
-        const completedSet = completedByDate.get(cursor) ?? new Set();
-        const anyCompleted = dueHabits.some((h) => completedSet.has(h.id));
-        if (anyCompleted) {
+        const anyActiveDueClosed = dueActiveHabits.some((h) => completedSet.has(h.id));
+        if (anyActiveDueClosed || anyCompletedToday) {
           streak++;
         } else {
           break;
