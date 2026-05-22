@@ -361,6 +361,86 @@ export const calculateOverallStreak = (
 };
 
 /**
+ * Lenient overall streak — то же что `calculateOverallStreak`, но для текущего
+ * дня (i===0) не обрывает стрик если ни одна привычка ещё не отмечена.
+ * Используется в `/stats` для отображения юзеру: пока день не закончен,
+ * показываем «вчерашний» стрик, а не сразу 0 (Эмин 2026-05-22).
+ *
+ * Для milestone/earn-freeze/triggers нужна строгая версия (`calculateOverallStreak`)
+ * — там стрик это реальный закрытый счётчик, не предварительный показ.
+ */
+export const calculateOverallStreakLenient = (
+  habits: StreakHabit[],
+  logs: StreakHabitLog[],
+  freezeUsages: StreakFreezeUsage[],
+  endDate: string,
+  maxDays: number = 365
+): number => {
+  if (habits.length === 0) return 0;
+
+  const completedByDate = new Map<string, Set<number>>();
+  for (const log of logs) {
+    if (!log.completed) continue;
+    if (!completedByDate.has(log.date)) {
+      completedByDate.set(log.date, new Set());
+    }
+    completedByDate.get(log.date)!.add(log.habitId);
+  }
+  const frozenDates = new Set(freezeUsages.map((f) => f.date));
+
+  const startDates = new Map(
+    habits.map((h) => [h.id, getEffectiveStartDate(h, logs)] as const)
+  );
+  const earliestStart = habits.reduce(
+    (min, h) => {
+      const d = startDates.get(h.id)!;
+      return d < min ? d : min;
+    },
+    endDate
+  );
+  const referenceDates = new Map(
+    habits.map((h) => [h.id, getHabitReferenceDate(h, logs)] as const)
+  );
+
+  let streak = 0;
+  let cursor = endDate;
+
+  for (let i = 0; i < maxDays; i++) {
+    if (cursor < earliestStart) break;
+
+    if (frozenDates.has(cursor)) {
+      streak++;
+    } else {
+      const dueActiveHabits = habits.filter(
+        (h) =>
+          h.isActive &&
+          isHabitDue(h, cursor, logs, referenceDates.get(h.id), startDates.get(h.id))
+      );
+      const completedSet = completedByDate.get(cursor) ?? new Set();
+      const anyCompletedToday = completedSet.size > 0;
+
+      if (dueActiveHabits.length === 0) {
+        if (anyCompletedToday) streak++;
+      } else {
+        const anyActiveDueClosed = dueActiveHabits.some((h) => completedSet.has(h.id));
+        if (anyActiveDueClosed || anyCompletedToday) {
+          streak++;
+        } else if (i === 0) {
+          // endDate имеет active due, но юзер ещё не отметил — день не закончен,
+          // пропускаем эту итерацию (стрик не обрывается, но и не растёт).
+        } else {
+          break;
+        }
+      }
+    }
+
+    cursor = format(subDays(parse(cursor, 'yyyy-MM-dd', new Date()), 1), 'yyyy-MM-dd');
+  }
+
+  return streak;
+};
+
+/**
  * Проверяет был ли день perfect (все due-привычки этого дня completed,
  * не frozen — freeze НЕ считается perfect).
  */

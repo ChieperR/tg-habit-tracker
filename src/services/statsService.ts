@@ -4,7 +4,7 @@ import { getLastNDays, getTodayDate } from '../utils/date.js';
 import { escapeMarkdown } from '../utils/telegram.js';
 import { format, subWeeks, startOfWeek, addDays, parse } from 'date-fns';
 import {
-  calculateOverallStreak,
+  calculateOverallStreakLenient,
   calculatePerHabitStreakLenient,
   calculatePerHabitMaxStreak,
   type StreakHabit,
@@ -160,9 +160,12 @@ export const getUserStats = async (
     computeHabitStats(h, allLogs, allFreezes, todayDate, lastNDays)
   );
 
+  // Для UI используем lenient версию: пока сегодня не закончен и юзер ещё
+  // ничего не отметил, показываем «вчерашний» стрик вместо 0 (Эмин 2026-05-22).
+  // Для milestone/earn-freeze/triggers используется строгая версия отдельно.
   const overallStreak =
     habits.length > 0
-      ? calculateOverallStreak(habits, allLogs, allFreezes, todayDate)
+      ? calculateOverallStreakLenient(habits, allLogs, allFreezes, todayDate)
       : 0;
 
   // Активные дни для графика — все даты, где есть completion хотя бы по одной
