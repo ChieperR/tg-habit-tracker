@@ -49,8 +49,29 @@ export const handleHabitToggle = async (
 
   const timezoneOffset = user.timezoneOffset ?? 0;
   const todayDate = getTodayDate(timezoneOffset);
-  const targetDate = date ?? todayDate;
-  const newStatus = await toggleHabitCompletion(habitId, timezoneOffset, date);
+  // Для evening_reminder отметка засчитывается на дату когда было отправлено
+  // ИМЕННО ЭТО напоминание (а не на текущий день). Использует `message.date`
+  // (Unix timestamp от Telegram) — встроенная мета, не нужно ничего класть в
+  // callback_data (упёрлись бы в 64-байтный лимит).
+  // Кейс: юзер кликает evening reminder в 00:30 ночи → отметка за вчера.
+  // Кейс: юзер промотал чат на 3 дня назад и кликает старое напоминание →
+  // отметка за тот день (Эмин 2026-05-22).
+  // Срабатывает только если юзер сам не передал date (чтобы явный backdating
+  // через weekly calendar не перебивался).
+  let effectiveDate = date;
+  if (!effectiveDate && source === 'evening_reminder') {
+    const msgDateSec = ctx.callbackQuery?.message?.date;
+    if (msgDateSec) {
+      // message.date в секундах UTC; переводим в дату по таймзоне юзера
+      const userDate = new Date(msgDateSec * 1000 + timezoneOffset * 60000);
+      const y = userDate.getUTCFullYear();
+      const monthStr = String(userDate.getUTCMonth() + 1).padStart(2, '0');
+      const dayStr = String(userDate.getUTCDate()).padStart(2, '0');
+      effectiveDate = `${y}-${monthStr}-${dayStr}`;
+    }
+  }
+  const targetDate = effectiveDate ?? todayDate;
+  const newStatus = await toggleHabitCompletion(habitId, timezoneOffset, effectiveDate);
   const statusText = newStatus ? '✅ Выполнено!' : '⬜ Отменено';
 
   // Трекаем check-in (fire-and-forget)
@@ -186,8 +207,12 @@ const processStreakSideEffects = async (
       }
     }
 
-    // Milestone detection
-    await detectAndSendMilestones(ctx.api, telegramId, userId, habitId, todayDate);
+    // Milestone detection — считаем стрик НА targetDate (не todayDate), чтобы
+    // backdated отметка тригерила milestone именно того дня. Если юзер
+    // отметил за вчера, стрик считается на вчера; если за сегодня (или
+    // без указания даты) targetDate=todayDate, поведение прежнее.
+    // Эмин 2026-05-22: пропускал milestone 10 при отметке за прошлый день.
+    await detectAndSendMilestones(ctx.api, telegramId, userId, habitId, targetDate);
   } catch (err) {
     console.error('[streak] processStreakSideEffects failed:', err);
   }
