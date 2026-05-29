@@ -3,7 +3,7 @@ import { BotContext } from '../../../types/index.js';
 import { serializeCallback } from '../../../utils/callback.js';
 import { safeEditMessage, safeAnswerCallback } from '../../../utils/telegram.js';
 import { findOrCreateUser } from '../../../services/userService.js';
-import { toggleHabitCompletion, deleteHabit, getHabitById, getUserHabitsWithTodayStatus, updateHabitReminder } from '../../../services/habitService.js';
+import { toggleHabitCompletion, deleteHabit, getHabitById, getUserHabitsWithTodayStatus, getUserHabitsWithDateStatus, updateHabitReminder } from '../../../services/habitService.js';
 import { trackEvent } from '../../../services/analyticsService.js';
 import { showHabitsList } from '../../commands/habits.js';
 import { createEveningChecklistKeyboard, createDeleteConfirmKeyboard, createHabitDetailsKeyboard, createHabitCreatedKeyboard } from '../../keyboards/index.js';
@@ -113,6 +113,30 @@ export const handleHabitToggle = async (
   }
 
   if (source === 'evening_reminder') {
+    const asOfDate = effectiveDate ?? todayDate;
+    if (asOfDate !== todayDate) {
+      // Backdated клик (юзер кликнул старый evening reminder из истории чата).
+      // Полноценный buildEveningReminder с trigger'ами и overlay'ами опирается
+      // на сегодня (perfect-week ahead, near-milestone и т.п.) — на старый
+      // день эти проверки некорректны. Поэтому собираем минимальный чеклист
+      // прямо на asOfDate, чтобы иконки в списке отражали фактическое
+      // состояние того дня.
+      const habits = await getUserHabitsWithDateStatus(user.id, asOfDate);
+      const dueHabits = habits.filter((h) => h.isDueToday);
+      const [, monthStr, dayStr] = asOfDate.split('-');
+      let backdatedMsg = `🌙 *Чеклист за ${dayStr}.${monthStr}*\n\n`;
+      backdatedMsg += 'Отметь выполненные привычки:\n\n';
+      for (const h of dueHabits) {
+        const status = h.completedToday ? '✅' : '⬜';
+        backdatedMsg += `${status} ${h.emoji} ${escapeMarkdown(h.name)}\n`;
+      }
+      await safeEditMessage(ctx, backdatedMsg, {
+        parse_mode: 'Markdown',
+        reply_markup: createEveningChecklistKeyboard(dueHabits),
+      });
+      return;
+    }
+
     const habits = await getUserHabitsWithTodayStatus(user.id, timezoneOffset);
     const todayHabits = habits.filter((h) => h.isDueToday);
 
