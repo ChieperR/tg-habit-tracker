@@ -13,6 +13,7 @@ export type AnalyticsData = {
   newUsers: number;
   prevNewUsers: number;
   dauAvg: number;
+  wau: number;
   mau: number;
   totalCheckins: number;
   retentionD7: number;
@@ -135,6 +136,26 @@ export const takeDailySnapshot = async (): Promise<void> => {
 };
 
 /**
+ * Считает уникальных юзеров с completed check-in'ом за rolling-окно
+ * `windowDays` дней (включая последний `referenceDate` — обычно today).
+ * Используется для WAU (windowDays=7). DAU/MAU берутся из DailySnapshot,
+ * а WAU считается on-demand — снапшот хранит только DAU и MAU.
+ */
+const countActiveUsersInWindow = async (referenceDate: string, windowDays: number): Promise<number> => {
+  const fromDate = format(subDays(new Date(`${referenceDate}T00:00:00.000Z`), windowDays - 1), 'yyyy-MM-dd');
+  const groups = await prisma.habitLog.groupBy({
+    by: ['habitId'],
+    where: { completed: true, date: { gte: fromDate, lte: referenceDate } },
+  });
+  if (groups.length === 0) return 0;
+  const habits = await prisma.habit.findMany({
+    where: { id: { in: groups.map((g) => g.habitId) } },
+    select: { userId: true },
+  });
+  return new Set(habits.map((h) => h.userId)).size;
+};
+
+/**
  * Возвращает аналитические данные за указанный период.
  */
 export const getAnalytics = async (period: AnalyticsPeriod): Promise<AnalyticsData> => {
@@ -173,6 +194,10 @@ export const getAnalytics = async (period: AnalyticsPeriod): Promise<AnalyticsDa
 
   const lastSnapshot = snapshots[snapshots.length - 1];
   const mau = lastSnapshot ? lastSnapshot.mau : 0;
+  // WAU считаем до вчера — симметрично с MAU (snapshot создаётся за вчера,
+  // поэтому «последний MAU» это значение за вчерашний день). Сегодня
+  // незакрытый, его в окно не включаем.
+  const wau = await countActiveUsersInWindow(format(subDays(now, 1), 'yyyy-MM-dd'), 7);
 
   const totalCheckins = await prisma.habitLog.count({
     where: { date: { gte: startDate }, completed: true },
@@ -208,6 +233,7 @@ export const getAnalytics = async (period: AnalyticsPeriod): Promise<AnalyticsDa
     newUsers,
     prevNewUsers,
     dauAvg,
+    wau,
     mau,
     totalCheckins,
     retentionD7: d7Result.percent,
@@ -255,6 +281,8 @@ export const getAnalyticsForRange = async (from: string, to: string): Promise<An
 
   const lastSnapshot = snapshots[snapshots.length - 1];
   const mau = lastSnapshot ? lastSnapshot.mau : 0;
+  // WAU считаем на конец диапазона (`to`) — окно 7 дней до этой даты.
+  const wau = await countActiveUsersInWindow(to, 7);
 
   const totalCheckins = await prisma.habitLog.count({
     where: { date: { gte: from, lte: to }, completed: true },
@@ -288,6 +316,7 @@ export const getAnalyticsForRange = async (from: string, to: string): Promise<An
     newUsers,
     prevNewUsers,
     dauAvg,
+    wau,
     mau,
     totalCheckins,
     retentionD7: d7Result.percent,
