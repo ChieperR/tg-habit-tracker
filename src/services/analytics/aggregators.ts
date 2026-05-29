@@ -194,7 +194,10 @@ export const getAnalytics = async (period: AnalyticsPeriod): Promise<AnalyticsDa
 
   const lastSnapshot = snapshots[snapshots.length - 1];
   const mau = lastSnapshot ? lastSnapshot.mau : 0;
-  const wau = await countActiveUsersInWindow(format(now, 'yyyy-MM-dd'), 7);
+  // WAU считаем до вчера — симметрично с MAU (snapshot создаётся за вчера,
+  // поэтому «последний MAU» это значение за вчерашний день). Сегодня
+  // незакрытый, его в окно не включаем.
+  const wau = await countActiveUsersInWindow(format(subDays(now, 1), 'yyyy-MM-dd'), 7);
 
   const totalCheckins = await prisma.habitLog.count({
     where: { date: { gte: startDate }, completed: true },
