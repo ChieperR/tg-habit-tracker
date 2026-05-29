@@ -38,7 +38,7 @@ export const getNowInTimezone = (timezoneOffset: number = DEFAULT_TIMEZONE_OFFSE
  * Форматирует Date как YYYY-MM-DD через UTC-аксессоры.
  * Используется на Date, у которой UTC-поля = время юзера (см. getNowInTimezone).
  */
-const formatYMDUtc = (d: Date): string => {
+export const formatYMDUtc = (d: Date): string => {
   const y = d.getUTCFullYear();
   const m = String(d.getUTCMonth() + 1).padStart(2, '0');
   const day = String(d.getUTCDate()).padStart(2, '0');

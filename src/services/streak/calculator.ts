@@ -105,6 +105,19 @@ export const isHabitDue = (
   });
 };
 
+/** Опции для расчёта стрика. */
+export type StreakOptions = {
+  /** Максимальная глубина поиска вглубь от endDate. */
+  maxDays?: number;
+  /**
+   * Если true — первая итерация (endDate) не обрывает стрик, даже если это
+   * due-день без completion и без freeze. Используется UI «текущего стрика»:
+   * пока день ещё не закончен, показываем «вчерашний» стрик, а не 0.
+   * Для milestone/earn-freeze/triggers использовать false (строгая семантика).
+   */
+  lenientToday?: boolean;
+};
+
 /**
  * Рассчитывает per-habit streak (на конец указанной даты включительно).
  *
@@ -112,20 +125,20 @@ export const isHabitDue = (
  * или freeze. Если ни того ни другого — streak обрывается. Non-due дни
  * пропускаем без учёта.
  *
- * @param habit Привычка
- * @param logs Все log'и привычки (можно передавать только relevantные)
- * @param freezeUsages Использованные freeze дни юзера
- * @param endDate Дата окончания расчёта (YYYY-MM-DD)
- * @param maxDays Максимальная глубина поиска вглубь (default 365 — на год)
+ * С `lenientToday: true` первая итерация (endDate) не обрывает стрик —
+ * эквивалентно `max(strict(today), strict(yesterday))` за один проход. Если
+ * endDate non-due (например выходной у weekdays-привычки), grace не
+ * переносится на следующий встреченный due-день.
  */
 export const calculatePerHabitStreak = (
   habit: StreakHabit,
   logs: StreakHabitLog[],
   freezeUsages: StreakFreezeUsage[],
   endDate: string,
-  maxDays: number = 365
+  options: StreakOptions = {}
 ): number => {
   if (!habit.isActive) return 0;
+  const { maxDays = 365, lenientToday = false } = options;
 
   const completedDates = new Set(
     logs.filter((l) => l.habitId === habit.id && l.completed).map((l) => l.date)
@@ -144,65 +157,13 @@ export const calculatePerHabitStreak = (
     if (isHabitDue(habit, cursorStr, logs, referenceDate, startDate)) {
       if (completedDates.has(cursorStr) || frozenDates.has(cursorStr)) {
         streak++;
-      } else {
-        // Due-день без completion и без freeze → streak обрывается.
-        break;
-      }
-    }
-    // Non-due день — пропускаем, streak не меняется.
-
-    cursor.setUTCDate(cursor.getUTCDate() - 1);
-  }
-
-  return streak;
-};
-
-/**
- * Лояльная версия `calculatePerHabitStreak` для UI «текущего стрика».
- *
- * Если `endDate` (обычно today) — due-день и НЕ покрыт completion/freeze,
- * пропускаем именно его («открытый период», у юзера ещё есть остаток дня
- * чтобы отметить) и продолжаем считать назад. Эквивалентно
- * `max(calculatePerHabitStreak(today), calculatePerHabitStreak(yesterday))`
- * за один проход.
- *
- * Если `endDate` non-due (например выходной у weekdays-привычки), grace НЕ
- * переносится на следующий встреченный due-день — иначе мы бы прощали
- * вчерашний пропуск через целые выходные.
- */
-export const calculatePerHabitStreakLenient = (
-  habit: StreakHabit,
-  logs: StreakHabitLog[],
-  freezeUsages: StreakFreezeUsage[],
-  endDate: string,
-  maxDays: number = 365
-): number => {
-  if (!habit.isActive) return 0;
-
-  const completedDates = new Set(
-    logs.filter((l) => l.habitId === habit.id && l.completed).map((l) => l.date)
-  );
-  const frozenDates = new Set(freezeUsages.map((f) => f.date));
-
-  const startDate = getEffectiveStartDate(habit, logs);
-  const referenceDate = getHabitReferenceDate(habit, logs);
-  let streak = 0;
-  const cursor = parse(endDate, 'yyyy-MM-dd', new Date());
-
-  for (let i = 0; i < maxDays; i++) {
-    const cursorStr = format(cursor, 'yyyy-MM-dd');
-    if (cursorStr < startDate) break;
-
-    if (isHabitDue(habit, cursorStr, logs, referenceDate, startDate)) {
-      if (completedDates.has(cursorStr) || frozenDates.has(cursorStr)) {
-        streak++;
-      } else if (i === 0) {
-        // endDate due, но ещё не отмечен — open period, пропускаем
-        // только эту первую итерацию, дальше обрыв строгий.
+      } else if (lenientToday && i === 0) {
+        // Open period: пропускаем только endDate, дальше обрыв строгий.
       } else {
         break;
       }
     }
+
     cursor.setUTCDate(cursor.getUTCDate() - 1);
   }
 
@@ -268,24 +229,22 @@ export const calculatePerHabitMaxStreak = (
  * - иначе если есть due-привычки и ни одна не закрыта → streak обрывается
  * - иначе (нет due-привычек) → нейтрально, не наращиваем но и не ломаем
  *
- * @param habits Активные привычки юзера
- * @param logs Все log'и юзера
- * @param freezeUsages Freeze юзера
- * @param endDate Дата окончания (включительно)
- * @param maxDays Глубина (default 365)
+ * С `lenientToday: true` первая итерация (endDate) с active due, но без
+ * completion и freeze, не обрывает стрик — для UI «текущего стрика».
  */
 export const calculateOverallStreak = (
   habits: StreakHabit[],
   logs: StreakHabitLog[],
   freezeUsages: StreakFreezeUsage[],
   endDate: string,
-  maxDays: number = 365
+  options: StreakOptions = {}
 ): number => {
   // Overall streak считаем по ВСЕМ habits юзера (включая удалённые),
   // потому что удаление привычки (soft delete `isActive=false`) НЕ должно
   // ретроактивно ломать стрик: completion log существует, день был активным.
   // Юзер уже мог получить freeze за этот стрик — отнимать его нельзя.
   if (habits.length === 0) return 0;
+  const { maxDays = 365, lenientToday = false } = options;
 
   const completedByDate = new Map<string, Set<number>>();
   for (const log of logs) {
@@ -348,86 +307,10 @@ export const calculateOverallStreak = (
         const anyActiveDueClosed = dueActiveHabits.some((h) => completedSet.has(h.id));
         if (anyActiveDueClosed || anyCompletedToday) {
           streak++;
-        } else {
-          break;
-        }
-      }
-    }
-
-    cursor = format(subDays(parse(cursor, 'yyyy-MM-dd', new Date()), 1), 'yyyy-MM-dd');
-  }
-
-  return streak;
-};
-
-/**
- * Lenient overall streak — то же что `calculateOverallStreak`, но для текущего
- * дня (i===0) не обрывает стрик если ни одна привычка ещё не отмечена.
- * Используется в `/stats` для отображения юзеру: пока день не закончен,
- * показываем «вчерашний» стрик, а не сразу 0 (Эмин 2026-05-22).
- *
- * Для milestone/earn-freeze/triggers нужна строгая версия (`calculateOverallStreak`)
- * — там стрик это реальный закрытый счётчик, не предварительный показ.
- */
-export const calculateOverallStreakLenient = (
-  habits: StreakHabit[],
-  logs: StreakHabitLog[],
-  freezeUsages: StreakFreezeUsage[],
-  endDate: string,
-  maxDays: number = 365
-): number => {
-  if (habits.length === 0) return 0;
-
-  const completedByDate = new Map<string, Set<number>>();
-  for (const log of logs) {
-    if (!log.completed) continue;
-    if (!completedByDate.has(log.date)) {
-      completedByDate.set(log.date, new Set());
-    }
-    completedByDate.get(log.date)!.add(log.habitId);
-  }
-  const frozenDates = new Set(freezeUsages.map((f) => f.date));
-
-  const startDates = new Map(
-    habits.map((h) => [h.id, getEffectiveStartDate(h, logs)] as const)
-  );
-  const earliestStart = habits.reduce(
-    (min, h) => {
-      const d = startDates.get(h.id)!;
-      return d < min ? d : min;
-    },
-    endDate
-  );
-  const referenceDates = new Map(
-    habits.map((h) => [h.id, getHabitReferenceDate(h, logs)] as const)
-  );
-
-  let streak = 0;
-  let cursor = endDate;
-
-  for (let i = 0; i < maxDays; i++) {
-    if (cursor < earliestStart) break;
-
-    if (frozenDates.has(cursor)) {
-      streak++;
-    } else {
-      const dueActiveHabits = habits.filter(
-        (h) =>
-          h.isActive &&
-          isHabitDue(h, cursor, logs, referenceDates.get(h.id), startDates.get(h.id))
-      );
-      const completedSet = completedByDate.get(cursor) ?? new Set();
-      const anyCompletedToday = completedSet.size > 0;
-
-      if (dueActiveHabits.length === 0) {
-        if (anyCompletedToday) streak++;
-      } else {
-        const anyActiveDueClosed = dueActiveHabits.some((h) => completedSet.has(h.id));
-        if (anyActiveDueClosed || anyCompletedToday) {
-          streak++;
-        } else if (i === 0) {
-          // endDate имеет active due, но юзер ещё не отметил — день не закончен,
-          // пропускаем эту итерацию (стрик не обрывается, но и не растёт).
+        } else if (lenientToday && i === 0) {
+          // Open period: пропускаем endDate без обрыва. Применимо только к
+          // UI «текущего стрика»; для milestone/earn-freeze/triggers
+          // вызывать со строгим (lenientToday=false).
         } else {
           break;
         }
