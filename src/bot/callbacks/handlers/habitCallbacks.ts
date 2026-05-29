@@ -3,14 +3,14 @@ import { BotContext } from '../../../types/index.js';
 import { serializeCallback } from '../../../utils/callback.js';
 import { safeEditMessage, safeAnswerCallback } from '../../../utils/telegram.js';
 import { findOrCreateUser } from '../../../services/userService.js';
-import { toggleHabitCompletion, deleteHabit, getHabitById, getUserHabitsWithTodayStatus, updateHabitReminder } from '../../../services/habitService.js';
+import { toggleHabitCompletion, deleteHabit, getHabitById, getUserHabitsWithTodayStatus, getUserHabitsWithDateStatus, updateHabitReminder } from '../../../services/habitService.js';
 import { trackEvent } from '../../../services/analyticsService.js';
 import { showHabitsList } from '../../commands/habits.js';
 import { createEveningChecklistKeyboard, createDeleteConfirmKeyboard, createHabitDetailsKeyboard, createHabitCreatedKeyboard } from '../../keyboards/index.js';
 import { formatScheduleText } from '../../../utils/format.js';
 import { escapeMarkdown } from '../../../utils/telegram.js';
 import { prisma } from '../../../db/index.js';
-import { getTodayDate } from '../../../utils/date.js';
+import { formatYMDUtc, getTodayDate } from '../../../utils/date.js';
 import { detectAndSendMilestones } from '../../../services/streak/milestoneDelivery.js';
 import { tryEarnFreezes, refundFreeze } from '../../../services/streak/freezeService.js';
 import { buildEveningReminder } from '../../../services/reminder/textBuilder.js';
@@ -49,8 +49,20 @@ export const handleHabitToggle = async (
 
   const timezoneOffset = user.timezoneOffset ?? 0;
   const todayDate = getTodayDate(timezoneOffset);
-  const targetDate = date ?? todayDate;
-  const newStatus = await toggleHabitCompletion(habitId, timezoneOffset, date);
+  // Отметка из reminder'а (evening или per-habit) засчитывается на дату
+  // отправки ИМЕННО ЭТОГО сообщения, а не на текущий день. Берём
+  // `message.date` (Unix UTC от Telegram) — встроенная мета, не упёрлись бы
+  // в 64-байтный лимит callback_data. Срабатывает только если юзер сам не
+  // передал date (чтобы явный backdating через weekly calendar не перебивался).
+  let effectiveDate = date;
+  if (!effectiveDate && (source === 'evening_reminder' || source === 'habit_reminder')) {
+    const msgDateSec = ctx.callbackQuery?.message?.date;
+    if (msgDateSec) {
+      effectiveDate = formatYMDUtc(new Date(msgDateSec * 1000 + timezoneOffset * 60000));
+    }
+  }
+  const targetDate = effectiveDate ?? todayDate;
+  const newStatus = await toggleHabitCompletion(habitId, timezoneOffset, effectiveDate);
   const statusText = newStatus ? '✅ Выполнено!' : '⬜ Отменено';
 
   // Трекаем check-in (fire-and-forget)
@@ -101,6 +113,30 @@ export const handleHabitToggle = async (
   }
 
   if (source === 'evening_reminder') {
+    const asOfDate = effectiveDate ?? todayDate;
+    if (asOfDate !== todayDate) {
+      // Backdated клик (юзер кликнул старый evening reminder из истории чата).
+      // Полноценный buildEveningReminder с trigger'ами и overlay'ами опирается
+      // на сегодня (perfect-week ahead, near-milestone и т.п.) — на старый
+      // день эти проверки некорректны. Поэтому собираем минимальный чеклист
+      // прямо на asOfDate, чтобы иконки в списке отражали фактическое
+      // состояние того дня.
+      const habits = await getUserHabitsWithDateStatus(user.id, asOfDate);
+      const dueHabits = habits.filter((h) => h.isDueToday);
+      const [, monthStr, dayStr] = asOfDate.split('-');
+      let backdatedMsg = `🌙 *Чеклист за ${dayStr}.${monthStr}*\n\n`;
+      backdatedMsg += 'Отметь выполненные привычки:\n\n';
+      for (const h of dueHabits) {
+        const status = h.completedToday ? '✅' : '⬜';
+        backdatedMsg += `${status} ${h.emoji} ${escapeMarkdown(h.name)}\n`;
+      }
+      await safeEditMessage(ctx, backdatedMsg, {
+        parse_mode: 'Markdown',
+        reply_markup: createEveningChecklistKeyboard(dueHabits),
+      });
+      return;
+    }
+
     const habits = await getUserHabitsWithTodayStatus(user.id, timezoneOffset);
     const todayHabits = habits.filter((h) => h.isDueToday);
 
@@ -147,7 +183,10 @@ const processStreakSideEffects = async (
       await refundFreeze(userId, targetDate);
     }
 
-    // Пересчитываем overall streak и пробуем заработать freeze
+    // Earn-freeze считаем на todayDate (не targetDate) намеренно: freeze
+    // выдаётся за «сегодняшний» стрик, чтобы backdated отметка не выдала
+    // freeze за давний пройденный milestone. Milestone-уведомление наоборот
+    // идёт на targetDate (см. detectAndSendMilestones ниже).
     const [habits, logs, freezeUsages] = await Promise.all([
       prisma.habit.findMany({ where: { userId } }),
       prisma.habitLog.findMany({
@@ -186,8 +225,11 @@ const processStreakSideEffects = async (
       }
     }
 
-    // Milestone detection
-    await detectAndSendMilestones(ctx.api, telegramId, userId, habitId, todayDate);
+    // Milestone detection — считаем стрик НА targetDate (не todayDate), чтобы
+    // backdated отметка тригерила milestone именно того дня. Если юзер
+    // отметил за вчера, стрик считается на вчера; если за сегодня (или
+    // без указания даты) targetDate=todayDate, поведение прежнее.
+    await detectAndSendMilestones(ctx.api, telegramId, userId, habitId, targetDate);
   } catch (err) {
     console.error('[streak] processStreakSideEffects failed:', err);
   }

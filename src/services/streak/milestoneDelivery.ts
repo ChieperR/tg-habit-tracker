@@ -66,14 +66,17 @@ type TriggeredMilestone = {
  * @param telegramId Telegram ID юзера (для sendMessage)
  * @param userId DB ID юзера
  * @param habitId DB ID привычки, которую только что отметили
- * @param todayDate Дата отметки (YYYY-MM-DD в timezone юзера)
+ * @param asOfDate Дата за которую засчитана отметка (YYYY-MM-DD в timezone
+ *   юзера). Может отличаться от «сегодня» если юзер отметил backdated через
+ *   weekly calendar или из старого reminder'а — стрик и milestone считаются
+ *   именно на эту дату.
  */
 export const detectAndSendMilestones = async (
   api: Api<RawApi>,
   telegramId: bigint,
   userId: number,
   habitId: number,
-  todayDate: string
+  asOfDate: string
 ): Promise<void> => {
   // Fetch user habits / logs / freezes
   const habits = (await prisma.habit.findMany({
@@ -96,7 +99,7 @@ export const detectAndSendMilestones = async (
   const triggered: TriggeredMilestone[] = [];
 
   // Per-habit streak check
-  const perHabitStreak = calculatePerHabitStreak(habit, logs, freezeUsages, todayDate);
+  const perHabitStreak = calculatePerHabitStreak(habit, logs, freezeUsages, asOfDate);
   if (PER_HABIT_MILESTONES.some((set) => set.milestone === perHabitStreak)) {
     const set = PER_HABIT_MILESTONES.find((s) => s.milestone === perHabitStreak)!;
     const isNew = await recordMilestone(userId, 'habit', habitId, perHabitStreak);
@@ -119,7 +122,7 @@ export const detectAndSendMilestones = async (
   }
 
   // Overall streak check
-  const overallStreak = calculateOverallStreak(habits, logs, freezeUsages, todayDate);
+  const overallStreak = calculateOverallStreak(habits, logs, freezeUsages, asOfDate);
   if (OVERALL_MILESTONES.some((set) => set.milestone === overallStreak)) {
     const set = OVERALL_MILESTONES.find((s) => s.milestone === overallStreak)!;
     const isNew = await recordMilestone(userId, 'overall', null, overallStreak);
@@ -141,7 +144,7 @@ export const detectAndSendMilestones = async (
   if (triggered.length === 0) return;
 
   // Собираем сводный текст и эффекты
-  const message = buildMessage(triggered, userId, todayDate);
+  const message = buildMessage(triggered, userId, asOfDate);
   const effectIds = mergeEffectIds(triggered);
 
   try {
@@ -176,13 +179,13 @@ export const detectAndSendMilestones = async (
 const buildMessage = (
   triggered: TriggeredMilestone[],
   userId: number,
-  todayDate: string
+  asOfDate: string
 ): string => {
   if (triggered.length === 1) {
-    return renderMilestoneBlock(triggered[0]!, userId, todayDate);
+    return renderMilestoneBlock(triggered[0]!, userId, asOfDate);
   }
 
-  const parts = triggered.map((t) => renderMilestoneBlock(t, userId, todayDate));
+  const parts = triggered.map((t) => renderMilestoneBlock(t, userId, asOfDate));
   const header =
     triggered.length === 2
       ? '🎯 *Двойное достижение!*'
@@ -196,7 +199,7 @@ const buildMessage = (
 const renderMilestoneBlock = (
   triggered: TriggeredMilestone,
   userId: number,
-  todayDate: string
+  asOfDate: string
 ): string => {
   // Выбираем подходящий вариант: фильтруем firstOnly если не первое достижение
   const variants: MilestoneVariant[] = triggered.textSet.variants.filter(
@@ -206,7 +209,7 @@ const renderMilestoneBlock = (
   const firstOnlyVariants = triggered.textSet.variants.filter((v) => v.firstOnly);
   const pool = triggered.isFirstTime && firstOnlyVariants.length > 0 ? firstOnlyVariants : variants;
 
-  const seed = `${userId}:${triggered.scope}:${triggered.habitId ?? 'overall'}:${triggered.milestone}:${todayDate}`;
+  const seed = `${userId}:${triggered.scope}:${triggered.habitId ?? 'overall'}:${triggered.milestone}:${asOfDate}`;
   const variant = pickDeterministic(pool, seed);
 
   let text = renderTemplate(variant.text, {
