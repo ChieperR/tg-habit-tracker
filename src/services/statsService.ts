@@ -26,7 +26,7 @@ const ACTIVITY_GRID_WEEKS = 12;
  * Pure: считает completionRate по уже загруженным логам.
  * Берёт `lastNDays` (массив YYYY-MM-DD) и пересекает с completion-датами.
  */
-const computeCompletionRate = (
+export const computeCompletionRate = (
   habitLogs: { date: string; completed: boolean }[],
   frequencyDays: number,
   lastNDays: string[]
@@ -90,7 +90,7 @@ const computeHabitStats = (
  * Pure: рендерит график активности по списку дат с выполнением.
  * Сетка ACTIVITY_GRID_WEEKS недель, последняя — текущая.
  */
-const renderActivityGraph = (
+export const renderActivityGraph = (
   activeDates: Set<string>,
   todayDate: string
 ): string => {
