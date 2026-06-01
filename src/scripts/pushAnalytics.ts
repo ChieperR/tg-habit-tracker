@@ -87,14 +87,17 @@ const reconstructFromRaw = async (): Promise<MetricRow[]> => {
     const newUsers = signupsByDate.get(date) ?? 0;
     cumulativeUsers += newUsers;
 
-    // MAU — уникальные активные за trailing 30 дней. Для первых ~30 дней жизни
-    // бота занижен (истории слева нет) — на графике MAU растёт с нуля. Это
-    // ожидаемо, не баг: реальный rolling-30 виден только начиная с 30-го дня.
+    // WAU/MAU — уникальные активные за trailing 7 / 30 дней (один проход).
+    // Для первых ~7/30 дней жизни бота занижены (истории слева нет) — на графике
+    // растут с нуля. Это ожидаемо, не баг: честный rolling виден с 7-го/30-го дня.
+    const wau = new Set<number>();
     const mau = new Set<number>();
     for (let i = 0; i < 30; i++) {
-      const day = addDays(date, -i);
-      const set = dauByDate.get(day);
-      if (set) for (const u of set) mau.add(u);
+      const set = dauByDate.get(addDays(date, -i));
+      if (set) for (const u of set) {
+        mau.add(u);
+        if (i < 7) wau.add(u);
+      }
     }
 
     rows.push(
@@ -102,6 +105,7 @@ const reconstructFromRaw = async (): Promise<MetricRow[]> => {
       { date, metric: 'totalCheckins', value: checkins },
       { date, metric: 'newUsers', value: newUsers },
       { date, metric: 'totalUsers', value: cumulativeUsers },
+      { date, metric: 'wau', value: wau.size },
       { date, metric: 'mau', value: mau.size },
     );
   }
