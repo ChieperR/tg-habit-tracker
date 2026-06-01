@@ -9,12 +9,23 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="$REPO/.dashboard-push.env"
+
 URL="${1:-${DASHBOARD_URL:-}}"
 TOKEN="${2:-${DASHBOARD_INGEST_TOKEN:-}}"
+
+# Повторный запуск: если url/токен не переданы — берём ранее сохранённые из
+# .dashboard-push.env. Так апгрейд (напр. на сырьё-модель) накатывается просто
+# `./scripts/setup-dashboard-push.sh` без аргументов.
+if [[ -f "$ENV_FILE" ]]; then
+  [[ -z "$URL" ]]   && URL="$(grep -E '^DASHBOARD_URL=' "$ENV_FILE" | head -1 | cut -d= -f2-)"
+  [[ -z "$TOKEN" ]] && TOKEN="$(grep -E '^DASHBOARD_INGEST_TOKEN=' "$ENV_FILE" | head -1 | cut -d= -f2-)"
+fi
 
 if [[ -z "$URL" || -z "$TOKEN" ]]; then
   echo "Usage: $0 <DASHBOARD_URL> <INGEST_TOKEN>"
   echo "  напр: $0 https://dashboard.fargenia.online <token>"
+  echo "  (при повторе url/токен подхватятся из .dashboard-push.env — можно без аргументов)"
   exit 1
 fi
 
@@ -23,8 +34,6 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 NODE_BIN_DIR="$(dirname "$(command -v node)")"
-
-ENV_FILE="$REPO/.dashboard-push.env"
 
 # Соль для хеширования uid — СТАБИЛЬНАЯ: генерим один раз и переиспользуем при
 # повторных запусках (иначе хеши поменяются → дедуп/история на дашборде ломаются).
