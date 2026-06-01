@@ -295,16 +295,6 @@ export const getHabitLogs = async (
  * @param time - Время в формате HH:MM или null для удаления
  * @returns Обновлённая привычка
  */
-/**
- * Переименовывает привычку. Имя уже должно быть провалидировано (trim, длина).
- */
-export const renameHabit = async (habitId: number, name: string): Promise<Habit> => {
-  return prisma.habit.update({
-    where: { id: habitId },
-    data: { name },
-  });
-};
-
 export const updateHabitReminder = async (
   habitId: number,
   time: string | null
@@ -360,4 +350,27 @@ export const getHabitsWithReminders = async (): Promise<
       },
     },
   });
+};
+
+/**
+ * Переименовывает привычку. Имя должно быть уже провалидировано
+ * (см. utils/validation.validateHabitName).
+ *
+ * Where включает userId + isActive: это разом и owner-check (нельзя
+ * переименовать чужую привычку подделанным callback'ом), и защита от
+ * переименования удалённой (isActive=false) записи. Используем updateMany,
+ * т.к. update требует уникальный where — а нам нужен составной фильтр.
+ *
+ * @returns true если привычка найдена и переименована, false иначе.
+ */
+export const renameHabit = async (
+  habitId: number,
+  userId: number,
+  name: string
+): Promise<boolean> => {
+  const result = await prisma.habit.updateMany({
+    where: { id: habitId, userId, isActive: true },
+    data: { name },
+  });
+  return result.count > 0;
 };
