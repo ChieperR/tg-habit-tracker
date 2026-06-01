@@ -25,10 +25,22 @@ fi
 NODE_BIN_DIR="$(dirname "$(command -v node)")"
 
 ENV_FILE="$REPO/.dashboard-push.env"
+
+# Соль для хеширования uid — СТАБИЛЬНАЯ: генерим один раз и переиспользуем при
+# повторных запусках (иначе хеши поменяются → дедуп/история на дашборде ломаются).
+SALT=""
+if [[ -f "$ENV_FILE" ]]; then
+  SALT="$(grep -E '^DASHBOARD_HASH_SALT=' "$ENV_FILE" | head -1 | cut -d= -f2-)"
+fi
+if [[ -z "$SALT" ]]; then
+  SALT="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+fi
+
 umask 077
 cat > "$ENV_FILE" <<EOF
 DASHBOARD_URL=$URL
 DASHBOARD_INGEST_TOKEN=$TOKEN
+DASHBOARD_HASH_SALT=$SALT
 NODE_BIN_DIR=$NODE_BIN_DIR
 EOF
 chmod 600 "$ENV_FILE"

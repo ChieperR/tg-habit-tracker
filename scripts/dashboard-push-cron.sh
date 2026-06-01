@@ -21,5 +21,5 @@ export PATH="${NODE_BIN_DIR:-}:$PATH"
 
 mkdir -p "$REPO/logs"
 echo "[$(date -u +%FT%TZ)] push start"
-npm run push-analytics
+npm run push-raw
 echo "[$(date -u +%FT%TZ)] push done"
