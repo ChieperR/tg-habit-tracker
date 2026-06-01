@@ -13,6 +13,7 @@ import { handleCallback } from './callbacks/index.js';
 import { handleTimezoneInput } from './handlers/timezoneInput.js';
 import {
   addHabitConversation,
+  renameHabitConversation,
   feedbackConversation,
   setMorningTimeConversation,
   setEveningTimeConversation,
@@ -57,6 +58,7 @@ export const createBot = (token: string): Bot<BotContext> => {
   // Middleware: conversations
   bot.use(conversations());
   bot.use(createConversation(addHabitConversation, 'addHabit'));
+  bot.use(createConversation(renameHabitConversation, 'renameHabit'));
   bot.use(createConversation(feedbackConversation, 'feedback'));
   bot.use(createConversation(setMorningTimeConversation, 'setMorningTime'));
   bot.use(createConversation(setEveningTimeConversation, 'setEveningTime'));

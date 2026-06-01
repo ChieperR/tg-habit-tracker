@@ -19,6 +19,7 @@ describe('serializeCallback / parseCallback round-trip', () => {
     { type: 'habit_delete', habitId: 7 },
     { type: 'habit_confirm_delete', habitId: 7 },
     { type: 'habit_details', habitId: 7 },
+    { type: 'habit_rename', habitId: 7 },
     { type: 'habit_reminder_set', habitId: 7 },
     { type: 'habit_reminder_remove', habitId: 7 },
     { type: 'stats' },

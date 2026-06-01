@@ -295,6 +295,16 @@ export const getHabitLogs = async (
  * @param time - Время в формате HH:MM или null для удаления
  * @returns Обновлённая привычка
  */
+/**
+ * Переименовывает привычку. Имя уже должно быть провалидировано (trim, длина).
+ */
+export const renameHabit = async (habitId: number, name: string): Promise<Habit> => {
+  return prisma.habit.update({
+    where: { id: habitId },
+    data: { name },
+  });
+};
+
 export const updateHabitReminder = async (
   habitId: number,
   time: string | null
