@@ -272,6 +272,8 @@ export const createHabitDetailsKeyboard = (params: HabitDetailsKeyboardParams): 
   }
 
   keyboard
+    .text('✏️ Переименовать', serializeCallback({ type: 'habit_rename', habitId }))
+    .row()
     .text('🗑 Удалить привычку', serializeCallback({ type: 'habit_delete', habitId }))
     .row()
     .text('◀️ Назад', serializeCallback({ type: 'habits_list' }));

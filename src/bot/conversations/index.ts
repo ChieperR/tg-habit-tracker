@@ -4,6 +4,7 @@
  */
 
 export { addHabitConversation } from './addHabit.js';
+export { renameHabitConversation } from './renameHabit.js';
 export { feedbackConversation } from './feedback.js';
 export {
   setMorningTimeConversation,

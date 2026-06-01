@@ -7,6 +7,7 @@ import { serializeCallback } from '../../utils/callback.js';
 import { isHabitDueToday, getTodayDate, getNextDueDay } from '../../utils/date.js';
 import { formatScheduleText } from '../../utils/format.js';
 import { cancelConversationKeyboard, waitTextOrCancel } from './cancelHelper.js';
+import { validateHabitName } from '../../utils/validation.js';
 
 /**
  * Диалог добавления новой привычки
@@ -49,17 +50,19 @@ export const addHabitConversation = async (
     { parse_mode: 'Markdown', reply_markup: cancelConversationKeyboard() }
   );
 
-  const nameInput = await waitTextOrCancel(conversation);
-  if (nameInput === null) {
-    return;
-  }
-  const habitName = nameInput;
-
-  if (habitName.startsWith('/')) {
-    await ctx.reply('❌ Добавление отменено', {
-      reply_markup: createMainMenuKeyboard(),
-    });
-    return;
+  let habitName: string;
+  while (true) {
+    const nameInput = await waitTextOrCancel(conversation);
+    if (nameInput === null) return;
+    const validated = validateHabitName(nameInput);
+    if ('error' in validated) {
+      await ctx.reply(`❌ ${validated.error} Введи ещё раз:`, {
+        reply_markup: cancelConversationKeyboard(),
+      });
+      continue;
+    }
+    habitName = validated.name;
+    break;
   }
 
   // ===== Шаг 2: Выбор эмодзи =====
