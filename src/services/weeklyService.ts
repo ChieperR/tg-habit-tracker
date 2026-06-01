@@ -28,7 +28,7 @@ const WEEKDAY_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
  * @param habit - Привычка из БД
  * @returns Строка типа "Ежедневно", "Пн, Ср, Пт", "Раз в 3 дня"
  */
-const getScheduleLabel = (habit: {
+export const getScheduleLabel = (habit: {
   frequencyType: string;
   frequencyDays: number;
   weekdays: string | null;
@@ -70,7 +70,7 @@ export const getFirstCompletionDate = async (habitId: number): Promise<string | 
  * @param firstCompletionDate - Дата первого выполнения или null
  * @returns true если в этот день привычка должна была быть выполнена
  */
-const wasHabitDueOnDate = (
+export const wasHabitDueOnDate = (
   habit: { frequencyType: string; frequencyDays: number; weekdays: string | null; createdAt: Date },
   dateStr: string,
   firstCompletionDate: string | null
