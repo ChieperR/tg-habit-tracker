@@ -20,6 +20,8 @@
  * @module scripts/pushAnalytics
  */
 import { prisma } from '../db/index.js';
+import { calculateWindowRetention } from '../services/analytics/retention.js';
+import { getUserSegments } from '../services/analytics/segmentation.js';
 
 const PROJECT = 'tg-habit-tracker';
 const URL = process.env.DASHBOARD_URL;
@@ -87,14 +89,17 @@ const reconstructFromRaw = async (): Promise<MetricRow[]> => {
     const newUsers = signupsByDate.get(date) ?? 0;
     cumulativeUsers += newUsers;
 
-    // MAU — уникальные активные за trailing 30 дней. Для первых ~30 дней жизни
-    // бота занижен (истории слева нет) — на графике MAU растёт с нуля. Это
-    // ожидаемо, не баг: реальный rolling-30 виден только начиная с 30-го дня.
+    // WAU/MAU — уникальные активные за trailing 7 / 30 дней (один проход).
+    // Для первых ~7/30 дней жизни бота занижены (истории слева нет) — на графике
+    // растут с нуля. Это ожидаемо, не баг: честный rolling виден с 7-го/30-го дня.
+    const wau = new Set<number>();
     const mau = new Set<number>();
     for (let i = 0; i < 30; i++) {
-      const day = addDays(date, -i);
-      const set = dauByDate.get(day);
-      if (set) for (const u of set) mau.add(u);
+      const set = dauByDate.get(addDays(date, -i));
+      if (set) for (const u of set) {
+        mau.add(u);
+        if (i < 7) wau.add(u);
+      }
     }
 
     rows.push(
@@ -102,6 +107,7 @@ const reconstructFromRaw = async (): Promise<MetricRow[]> => {
       { date, metric: 'totalCheckins', value: checkins },
       { date, metric: 'newUsers', value: newUsers },
       { date, metric: 'totalUsers', value: cumulativeUsers },
+      { date, metric: 'wau', value: wau.size },
       { date, metric: 'mau', value: mau.size },
     );
   }
@@ -125,14 +131,41 @@ const fromSnapshots = async (): Promise<MetricRow[]> => {
   return rows;
 };
 
+/**
+ * Текущие retention (D7/D30) и сегментация юзеров — point-in-time, считаются на
+ * «сейчас». Исторически не реконструируются, поэтому пишутся на сегодняшнюю
+ * дату; daily-cron со временем строит из них ряд.
+ */
+const currentSnapshot = async (): Promise<MetricRow[]> => {
+  const today = ymdInTz(new Date(), BOT_TZ_MIN);
+  const [d7, d30, seg] = await Promise.all([
+    calculateWindowRetention(7),
+    calculateWindowRetention(30),
+    getUserSegments(),
+  ]);
+  return [
+    { date: today, metric: 'retention_d7', value: d7.percent },
+    { date: today, metric: 'retention_d30', value: d30.percent },
+    { date: today, metric: 'seg_power', value: seg.power },
+    { date: today, metric: 'seg_active', value: seg.active },
+    { date: today, metric: 'seg_dormant', value: seg.dormant },
+    { date: today, metric: 'seg_churned', value: seg.churned },
+    { date: today, metric: 'seg_zombie', value: seg.zombie },
+  ];
+};
+
 const main = async (): Promise<void> => {
   if (!URL || !TOKEN) {
     console.error('[pushAnalytics] нужны env DASHBOARD_URL и DASHBOARD_INGEST_TOKEN');
     process.exit(1);
   }
 
-  const [raw, snap] = await Promise.all([reconstructFromRaw(), fromSnapshots()]);
-  const metrics = [...raw, ...snap];
+  const [raw, snap, current] = await Promise.all([
+    reconstructFromRaw(),
+    fromSnapshots(),
+    currentSnapshot(),
+  ]);
+  const metrics = [...raw, ...snap, ...current];
 
   if (metrics.length === 0) {
     console.log('[pushAnalytics] нет данных для отправки');
