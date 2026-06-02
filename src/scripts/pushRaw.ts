@@ -1,32 +1,26 @@
 /**
- * Отправляет ОБЕЗЛИЧЕННОЕ сырьё аналитики на дашборд (сырьё-модель).
+ * Отправляет на дашборд ПОЛНЫЙ ОБЕЗЛИЧЕННЫЙ ДАМП таблиц бота (сырьё-модель).
  *
- * Вместо готовых метрик шлём «сырые» данные с хешированными ID — дашборд сам
- * считает любые метрики (новые добавляются на стороне дашборда, sender не
- * трогаем). Наружу уходят: хеш(uid) + даты активности + флаги. Без имён,
- * username, реальных TG ID, названий привычек.
+ * Философия: дашборд держит анонимную копию БД и считает ЛЮБЫЕ метрики сам.
+ * Sender ничего не агрегирует и не выбирает «нужные» поля — он шлёт таблицы
+ * целиком, только обезличенные. Новая метрика на дашборде → правок здесь НЕ
+ * требуется. (Раньше слались выбранные поля — это и было ошибкой.)
  *
- * Что шлём:
- *  - users:    [{uid_hash, created, tz, morning, evening, habitReminders}]
- *  - userDays: [{uid_hash, date, checkins}] — completed чек-ины по дням
- *  - habitDaily: [{date, avgStreak, activeHabits, totalHabits}] из снапшотов
+ * Обезличивание:
+ *  - все id хешируются солью консистентно: user.id → uid_hash, habit.id →
+ *    hid_hash. Связи таблиц сохраняются (habit_logs ↔ habits ↔ users).
+ *  - НЕ шлём: telegramId, name привычки, тексты фидбэка (таблицу фидбэка
+ *    вообще не шлём), habitId внутри metadata событий — хешируется.
+ *  - даты остаются как есть (UTC ISO); локальные вычисления (дата в TZ юзера
+ *    и т.п.) делает дашборд из createdAt + timezoneOffset.
  *
- * 🔴 Контракт: это ПОЛНЫЙ СНИМОК текущего состояния, не дельта. Каждый запуск
- * шлёт всех живых юзеров целиком. Семантика на дашборде — UPSERT по uid_hash:
- * существующие обновляются, новые добавляются. Удалённый из БД бота юзер
- * (CASCADE при prisma.user.delete) просто перестаёт приходить — на дашборде
- * остаётся как «призрак» (не удаляется автоматически). Для текущего масштаба
- * это ок; если понадобится точный отток — дашборд должен помечать
- * отсутствующих в снимке. Прошлый агрегатный sender считал totalUsers
- * кумулятивно (только рос) — здесь totalUsers = размер текущего снимка.
+ * 🔴 Контракт: ПОЛНЫЙ СНИМОК. Дашборд для каждой таблицы делает replace по
+ * project (удалил старое, вставил присланное) — поэтому удалённые из Бота
+ * строки исчезают и на дашборде (без «призраков»).
  *
- * ⚠️ Обезличенность держится на СЕКРЕТНОСТИ соли. hashUid = sha256(salt:id)
- * дёшев: при утечке соли весь диапазон id (1..N) перебирается за секунды и
- * mapping uid_hash → internal_id восстанавливается. internal_id ≠ telegramId
- * (его знает только БД бота), но при одновременной утечке дампа БД
- * анонимизация снимается полностью. Соль лежит только на сервере бота
- * (.dashboard-push.env, chmod 600). Для реальной необратимости понадобился бы
- * per-user pepper / scrypt и хранение соли вне бота — избыточно для масштаба.
+ * ⚠️ Обезличенность держится на секретности соли (.dashboard-push.env, chmod
+ * 600). hashId дёшев: при утечке соли диапазон id перебирается и mapping
+ * восстановим; telegramId всё равно не уходит, но дисклеймер нужен.
  *
  * Запуск (cron):
  *   DASHBOARD_URL=... DASHBOARD_INGEST_TOKEN=... DASHBOARD_HASH_SALT=... \
@@ -36,21 +30,32 @@
  */
 import { createHash } from 'node:crypto';
 import { prisma } from '../db/index.js';
-import { DEFAULT_TIMEZONE_OFFSET } from '../utils/date.js';
 
 const PROJECT = 'tg-habit-tracker';
 const URL = process.env.DASHBOARD_URL;
 const TOKEN = process.env.DASHBOARD_INGEST_TOKEN;
 const SALT = process.env.DASHBOARD_HASH_SALT;
 
-const ymd = (d: Date): string => d.toISOString().slice(0, 10);
-const ymdInTz = (d: Date, offsetMin: number): string =>
-  ymd(new Date(d.getTime() + offsetMin * 60000));
+/** Консистентный обезличивающий хеш id. kind разводит пространства (u/h),
+ * но связи сохраняются: один и тот же (kind,id) всегда даёт один хеш. */
+const hashId = (kind: 'u' | 'h', id: number): string =>
+  createHash('sha256').update(`${SALT}:${kind}:${id}`).digest('hex').slice(0, 24);
 
-/** Хеш TG-id с солью (96 бит против коллизий). Обратимость — см. дисклеймер
- * в шапке модуля: защита держится на секретности соли. */
-const hashUid = (id: number): string =>
-  createHash('sha256').update(`${SALT}:${id}`).digest('hex').slice(0, 24);
+const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
+
+/** Анонимизирует habitId внутри JSON-metadata события (остальное — как есть). */
+const anonMeta = (metadata: string | null): string | null => {
+  if (!metadata) return metadata;
+  try {
+    const obj = JSON.parse(metadata);
+    if (obj && typeof obj === 'object' && typeof obj.habitId === 'number') {
+      obj.habitId = hashId('h', obj.habitId);
+    }
+    return JSON.stringify(obj);
+  } catch {
+    return null; // невалидный JSON — не рискуем утечкой, выкидываем
+  }
+};
 
 const main = async (): Promise<void> => {
   if (!URL || !TOKEN || !SALT) {
@@ -58,81 +63,112 @@ const main = async (): Promise<void> => {
     process.exit(1);
   }
 
-  // ── users ──────────────────────────────────────────────────────────────
-  // TODO(scale): full findMany всех юзеров + их habits в память. На 160 ок,
-  // на 50k+ — курсорная пагинация / дельта по updatedAt.
-  const users = await prisma.user.findMany({
-    select: {
-      id: true,
-      createdAt: true,
-      timezoneOffset: true,
-      morningEnabled: true,
-      morningTime: true,
-      eveningEnabled: true,
-      eveningTime: true,
-      habits: { where: { isActive: true }, select: { reminderTime: true } },
-    },
-  });
-  const usersPayload = users.map((u) => {
-    const tz = u.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET;
-    // Времена напоминаний (HH:MM в локальном времени юзера) — дашборд по ним
-    // на лету считает «пришло» = время уже наступило в поясе юзера к моменту
-    // просмотра. Само время не PII.
-    const habitTimes = u.habits
-      .map((h) => h.reminderTime)
-      .filter((t): t is string => t !== null);
-    return {
-      uid_hash: hashUid(u.id),
-      created: ymdInTz(u.createdAt, tz),
-      // Разворачиваем по типам (не один грубый boolean): дашборд сам считает
-      // ожидается/пришло по утру/вечеру/привычкам и любые сегменты по типам.
-      tz,
-      morning: u.morningEnabled,
-      morningTime: u.morningEnabled ? u.morningTime : null,
-      evening: u.eveningEnabled,
-      eveningTime: u.eveningEnabled ? u.eveningTime : null,
-      habitTimes,
-    };
-  });
+  // TODO(scale): всё грузится в память целиком. На 160 юзерах/десятках тысяч
+  // логов ок; на сотнях тысяч строк — инкрементальная выгрузка по updatedAt /
+  // курсорная пагинация + дельта-режим на дашборде.
+  const [users, habits, habitLogs, analyticsEvents, achievementEvents, freezeUsages, dailySnapshots] =
+    await Promise.all([
+      prisma.user.findMany(),
+      prisma.habit.findMany(),
+      prisma.habitLog.findMany(),
+      prisma.analyticsEvent.findMany(),
+      prisma.achievementEvent.findMany(),
+      prisma.freezeUsage.findMany(),
+      prisma.dailySnapshot.findMany(),
+    ]);
 
-  // ── userDays (completed чек-ины по дням) ─────────────────────────────────
-  // Берём только completed=true: единица активности на дашборде = выполненная
-  // привычка. Дни, где юзер ставил и снимал галку (markedAt есть, completed
-  // стал false), сюда не попадают — это осознанный выбор «считаем выполнения».
-  // TODO(scale): findMany всех логов за всё время; на 1M строк — пагинация.
-  const logs = await prisma.habitLog.findMany({
-    where: { completed: true },
-    select: { date: true, habit: { select: { userId: true } } },
-  });
-  const counter = new Map<string, number>(); // `${userId}|${date}` → count
-  for (const l of logs) {
-    const k = `${l.habit.userId}|${l.date}`;
-    counter.set(k, (counter.get(k) ?? 0) + 1);
-  }
-  const userDays = [...counter.entries()].map(([k, checkins]) => {
-    const sep = k.indexOf('|');
-    const uid = Number(k.slice(0, sep));
-    const date = k.slice(sep + 1);
-    return { uid_hash: hashUid(uid), date, checkins };
-  });
-
-  // ── habit-агрегаты из снапшотов (не на уровне юзера) ─────────────────────
-  const snaps = await prisma.dailySnapshot.findMany({
-    orderBy: { date: 'asc' },
-    select: { date: true, avgStreak: true, activeHabits: true, totalHabits: true },
-  });
-  const habitDaily = snaps.map((s) => ({
-    date: s.date,
-    avgStreak: s.avgStreak,
-    activeHabits: s.activeHabits,
-    totalHabits: s.totalHabits,
+  // users — без telegramId
+  const usersOut = users.map((u) => ({
+    uid_hash: hashId('u', u.id),
+    morningTime: u.morningTime,
+    eveningTime: u.eveningTime,
+    timezoneOffset: u.timezoneOffset,
+    morningEnabled: u.morningEnabled,
+    eveningEnabled: u.eveningEnabled,
+    lastMorningReminderDate: u.lastMorningReminderDate,
+    lastEveningReminderDate: u.lastEveningReminderDate,
+    lastSeenChangelog: u.lastSeenChangelog,
+    source: u.source,
+    lastActiveAt: iso(u.lastActiveAt),
+    lastFeedbackAt: iso(u.lastFeedbackAt),
+    freezeCount: u.freezeCount,
+    lastFreezeEarnStreakDay: u.lastFreezeEarnStreakDay,
+    createdAt: iso(u.createdAt),
   }));
+
+  // habits — без name
+  const habitsOut = habits.map((h) => ({
+    hid_hash: hashId('h', h.id),
+    uid_hash: hashId('u', h.userId),
+    emoji: h.emoji,
+    frequencyType: h.frequencyType,
+    frequencyDays: h.frequencyDays,
+    weekdays: h.weekdays,
+    reminderTime: h.reminderTime,
+    lastHabitReminderDate: h.lastHabitReminderDate,
+    isActive: h.isActive,
+    createdAt: iso(h.createdAt),
+  }));
+
+  const habitLogsOut = habitLogs.map((l) => ({
+    hid_hash: hashId('h', l.habitId),
+    date: l.date,
+    completed: l.completed,
+    markedAt: iso(l.markedAt),
+  }));
+
+  const analyticsEventsOut = analyticsEvents.map((e) => ({
+    uid_hash: hashId('u', e.userId),
+    type: e.type,
+    metadata: anonMeta(e.metadata),
+    createdAt: iso(e.createdAt),
+  }));
+
+  const achievementEventsOut = achievementEvents.map((a) => ({
+    uid_hash: hashId('u', a.userId),
+    scope: a.scope,
+    hid_hash: a.habitId !== null ? hashId('h', a.habitId) : null,
+    milestone: a.milestone,
+    achievedAt: iso(a.achievedAt),
+  }));
+
+  const freezeUsagesOut = freezeUsages.map((f) => ({
+    uid_hash: hashId('u', f.userId),
+    date: f.date,
+    reason: f.reason,
+    createdAt: iso(f.createdAt),
+  }));
+
+  const dailySnapshotsOut = dailySnapshots.map((s) => ({
+    date: s.date,
+    totalUsers: s.totalUsers,
+    newUsers: s.newUsers,
+    dau: s.dau,
+    mau: s.mau,
+    totalHabits: s.totalHabits,
+    activeHabits: s.activeHabits,
+    totalCheckins: s.totalCheckins,
+    avgStreak: s.avgStreak,
+  }));
+
+  const payload = {
+    project: PROJECT,
+    tables: {
+      users: usersOut,
+      habits: habitsOut,
+      habitLogs: habitLogsOut,
+      analyticsEvents: analyticsEventsOut,
+      achievementEvents: achievementEventsOut,
+      freezeUsages: freezeUsagesOut,
+      dailySnapshots: dailySnapshotsOut,
+    },
+  };
 
   const res = await fetch(`${URL.replace(/\/$/, '')}/ingest-raw`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
-    body: JSON.stringify({ project: PROJECT, users: usersPayload, userDays, habitDaily }),
-    signal: AbortSignal.timeout(30_000),
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(60_000),
   });
 
   if (!res.ok) {
@@ -141,7 +177,8 @@ const main = async (): Promise<void> => {
   }
   const json = (await res.json()) as { aggregated?: number };
   console.log(
-    `[pushRaw] users=${usersPayload.length} userDays=${userDays.length} habitDaily=${habitDaily.length} → агрегировано метрик: ${json.aggregated ?? '?'}`,
+    `[pushRaw] users=${usersOut.length} habits=${habitsOut.length} logs=${habitLogsOut.length} ` +
+      `events=${analyticsEventsOut.length} → метрик: ${json.aggregated ?? '?'}`,
   );
 };
 
