@@ -54,28 +54,47 @@ const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 // хешируется. Так новое поле в metadata не утечёт молча без ревью.
 const ALLOWED_META_KEYS = new Set(['type', 'source', 'reason']);
 
-const anonMeta = (metadata: string | null, eventType: string): string | null => {
+// reason у bot_blocked — это error.description от Telegram (обычно generic
+// «chat not found»), но Telegram иногда вставляет в текст @username / id.
+// Вырезаем @упоминания и длинные числовые id — на всякий случай.
+const scrubReason = (v: unknown): string | null => {
+  if (typeof v !== 'string') return null;
+  return v.replace(/@\w+/g, '@…').replace(/\d{4,}/g, '#').slice(0, 120);
+};
+
+const anonMeta = (metadata: string | null, eventType: string, eventId: number): string | null => {
   if (!metadata) return null;
   let obj: unknown;
   try {
     obj = JSON.parse(metadata);
   } catch {
-    console.warn(`[pushRaw] битый JSON в metadata события type=${eventType} — выкинуто`);
+    console.warn(`[pushRaw] битый JSON в metadata: event id=${eventId} type=${eventType} — выкинуто`);
     return null;
   }
   if (!obj || typeof obj !== 'object') return null;
   const src = obj as Record<string, unknown>;
   const out: Record<string, unknown> = {};
-  for (const k of ALLOWED_META_KEYS) if (k in src) out[k] = src[k];
-  if (typeof src.habitId === 'number') out.habitId = hashId('h', src.habitId);
+  if ('type' in src) out.type = src.type;
+  if ('source' in src) out.source = src.source;
+  if ('reason' in src) {
+    const r = scrubReason(src.reason);
+    if (r !== null) out.reason = r;
+  }
+  // habitId принимаем и числом, и строкой (на случай рефактора в callsite) —
+  // хешируем; нехешируемое не пропускаем (ключа нет в whitelist).
+  const hid =
+    typeof src.habitId === 'number' ? src.habitId
+    : typeof src.habitId === 'string' ? Number(src.habitId)
+    : NaN;
+  if (Number.isFinite(hid)) out.habitId = hashId('h', hid);
   return Object.keys(out).length ? JSON.stringify(out) : null;
 };
 
 // FreezeUsage.reason — техническое значение (auto_miss). Whitelist на случай
-// если когда-нибудь туда попадёт свободный ввод.
+// свободного ввода; null сохраняем как null (не подменяем на 'other').
 const ALLOWED_FREEZE_REASONS = new Set(['auto_miss']);
-const safeReason = (reason: string | null): string =>
-  reason && ALLOWED_FREEZE_REASONS.has(reason) ? reason : 'other';
+const safeReason = (reason: string | null): string | null =>
+  reason === null ? null : ALLOWED_FREEZE_REASONS.has(reason) ? reason : 'other';
 
 const main = async (): Promise<void> => {
   if (!URL || !TOKEN || !SALT) {
@@ -140,7 +159,7 @@ const main = async (): Promise<void> => {
   const analyticsEventsOut = analyticsEvents.map((e) => ({
     uid_hash: hashId('u', e.userId),
     type: e.type,
-    metadata: anonMeta(e.metadata, e.type),
+    metadata: anonMeta(e.metadata, e.type, e.id),
     createdAt: iso(e.createdAt),
   }));
 
@@ -186,6 +205,14 @@ const main = async (): Promise<void> => {
       dailySnapshots: dailySnapshotsOut,
     },
   };
+
+  // Sanity: контракт — полный replace. Если БД пустая (не та DATABASE_URL,
+  // recovery, миграция) — НЕ шлём, иначе replace снёс бы всю историю дашборда.
+  const total = usersOut.length + habitsOut.length + habitLogsOut.length + analyticsEventsOut.length;
+  if (total === 0) {
+    console.warn('[pushRaw] все таблицы пустые — отправка отменена (sanity guard)');
+    return;
+  }
 
   // Таблицы целиком могут весить мегабайты (особенно analyticsEvents за
   // полгода) → gzip, иначе nginx/Fastify режут на ~1 МБ с 413.
