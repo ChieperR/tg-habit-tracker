@@ -67,21 +67,31 @@ const main = async (): Promise<void> => {
       createdAt: true,
       timezoneOffset: true,
       morningEnabled: true,
+      morningTime: true,
       eveningEnabled: true,
+      eveningTime: true,
       habits: { where: { isActive: true }, select: { reminderTime: true } },
     },
   });
   const usersPayload = users.map((u) => {
     const tz = u.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET;
+    // Времена напоминаний (HH:MM в локальном времени юзера) — дашборд по ним
+    // на лету считает «пришло» = время уже наступило в поясе юзера к моменту
+    // просмотра. Само время не PII.
+    const habitTimes = u.habits
+      .map((h) => h.reminderTime)
+      .filter((t): t is string => t !== null);
     return {
       uid_hash: hashUid(u.id),
       created: ymdInTz(u.createdAt, tz),
       // Разворачиваем по типам (не один грубый boolean): дашборд сам считает
-      // «ожидается утренних/вечерних/по привычкам» и любые сегменты по типам.
+      // ожидается/пришло по утру/вечеру/привычкам и любые сегменты по типам.
       tz,
       morning: u.morningEnabled,
+      morningTime: u.morningEnabled ? u.morningTime : null,
       evening: u.eveningEnabled,
-      habitReminders: u.habits.filter((h) => h.reminderTime !== null).length,
+      eveningTime: u.eveningEnabled ? u.eveningTime : null,
+      habitTimes,
     };
   });
 
