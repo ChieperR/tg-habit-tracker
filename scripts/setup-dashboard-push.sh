@@ -11,6 +11,11 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$REPO/.dashboard-push.env"
 
+# Безопасное чтение значения из env-файла. `|| true` обязателен: без него
+# grep при отсутствии ключа возвращает 1 → под `set -euo pipefail` команда
+# подстановки падает и скрипт молча умирает (баг: старый env без SALT).
+env_val() { grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- || true; }
+
 URL="${1:-${DASHBOARD_URL:-}}"
 TOKEN="${2:-${DASHBOARD_INGEST_TOKEN:-}}"
 
@@ -18,8 +23,8 @@ TOKEN="${2:-${DASHBOARD_INGEST_TOKEN:-}}"
 # .dashboard-push.env. Так апгрейд (напр. на сырьё-модель) накатывается просто
 # `./scripts/setup-dashboard-push.sh` без аргументов.
 if [[ -f "$ENV_FILE" ]]; then
-  [[ -z "$URL" ]]   && URL="$(grep -E '^DASHBOARD_URL=' "$ENV_FILE" | head -1 | cut -d= -f2-)"
-  [[ -z "$TOKEN" ]] && TOKEN="$(grep -E '^DASHBOARD_INGEST_TOKEN=' "$ENV_FILE" | head -1 | cut -d= -f2-)"
+  [[ -n "$URL" ]]   || URL="$(env_val DASHBOARD_URL)"
+  [[ -n "$TOKEN" ]] || TOKEN="$(env_val DASHBOARD_INGEST_TOKEN)"
 fi
 
 if [[ -z "$URL" || -z "$TOKEN" ]]; then
@@ -39,7 +44,7 @@ NODE_BIN_DIR="$(dirname "$(command -v node)")"
 # повторных запусках (иначе хеши поменяются → дедуп/история на дашборде ломаются).
 SALT=""
 if [[ -f "$ENV_FILE" ]]; then
-  SALT="$(grep -E '^DASHBOARD_HASH_SALT=' "$ENV_FILE" | head -1 | cut -d= -f2-)"
+  SALT="$(env_val DASHBOARD_HASH_SALT)"
 fi
 if [[ -z "$SALT" ]]; then
   SALT="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
