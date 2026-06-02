@@ -17,6 +17,11 @@
  * 🔴 Контракт: ПОЛНЫЙ СНИМОК. Дашборд для каждой таблицы делает replace по
  * project (удалил старое, вставил присланное) — поэтому удалённые из Бота
  * строки исчезают и на дашборде (без «призраков»).
+ *   Последствие для метрик: при удалении юзера (prisma.user.delete → CASCADE
+ *   на habits/logs/events) он ПОЛНОСТЬЮ исчезает из истории — ретроспективные
+ *   retention/funnel/churn пересчитаются «как будто его не было». Хорошо для
+ *   приватности, но не удивляйся если метрика за прошлый месяц «съедет» после
+ *   массового удаления (напр. GDPR-чистка заблокировавших).
  *
  * ⚠️ Обезличенность держится на секретности соли (.dashboard-push.env, chmod
  * 600). hashId дёшев: при утечке соли диапазон id перебирается и mapping
@@ -29,6 +34,7 @@
  * @module scripts/pushRaw
  */
 import { createHash } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
 import { prisma } from '../db/index.js';
 
 const PROJECT = 'tg-habit-tracker';
@@ -36,26 +42,40 @@ const URL = process.env.DASHBOARD_URL;
 const TOKEN = process.env.DASHBOARD_INGEST_TOKEN;
 const SALT = process.env.DASHBOARD_HASH_SALT;
 
-/** Консистентный обезличивающий хеш id. kind разводит пространства (u/h),
+/** Консистентный обезличивающий хеш id. kind разводит пространства (u/h/…),
  * но связи сохраняются: один и тот же (kind,id) всегда даёт один хеш. */
-const hashId = (kind: 'u' | 'h', id: number): string =>
+const hashId = (kind: string, id: number): string =>
   createHash('sha256').update(`${SALT}:${kind}:${id}`).digest('hex').slice(0, 24);
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 
-/** Анонимизирует habitId внутри JSON-metadata события (остальное — как есть). */
-const anonMeta = (metadata: string | null): string | null => {
-  if (!metadata) return metadata;
+// metadata события — WHITELIST: наружу уходят только эти ключи, остальное
+// (feedbackId, любые будущие поля с текстом и т.п.) выкидывается. habitId
+// хешируется. Так новое поле в metadata не утечёт молча без ревью.
+const ALLOWED_META_KEYS = new Set(['type', 'source', 'reason']);
+
+const anonMeta = (metadata: string | null, eventType: string): string | null => {
+  if (!metadata) return null;
+  let obj: unknown;
   try {
-    const obj = JSON.parse(metadata);
-    if (obj && typeof obj === 'object' && typeof obj.habitId === 'number') {
-      obj.habitId = hashId('h', obj.habitId);
-    }
-    return JSON.stringify(obj);
+    obj = JSON.parse(metadata);
   } catch {
-    return null; // невалидный JSON — не рискуем утечкой, выкидываем
+    console.warn(`[pushRaw] битый JSON в metadata события type=${eventType} — выкинуто`);
+    return null;
   }
+  if (!obj || typeof obj !== 'object') return null;
+  const src = obj as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of ALLOWED_META_KEYS) if (k in src) out[k] = src[k];
+  if (typeof src.habitId === 'number') out.habitId = hashId('h', src.habitId);
+  return Object.keys(out).length ? JSON.stringify(out) : null;
 };
+
+// FreezeUsage.reason — техническое значение (auto_miss). Whitelist на случай
+// если когда-нибудь туда попадёт свободный ввод.
+const ALLOWED_FREEZE_REASONS = new Set(['auto_miss']);
+const safeReason = (reason: string | null): string =>
+  reason && ALLOWED_FREEZE_REASONS.has(reason) ? reason : 'other';
 
 const main = async (): Promise<void> => {
   if (!URL || !TOKEN || !SALT) {
@@ -120,7 +140,7 @@ const main = async (): Promise<void> => {
   const analyticsEventsOut = analyticsEvents.map((e) => ({
     uid_hash: hashId('u', e.userId),
     type: e.type,
-    metadata: anonMeta(e.metadata),
+    metadata: anonMeta(e.metadata, e.type),
     createdAt: iso(e.createdAt),
   }));
 
@@ -135,10 +155,13 @@ const main = async (): Promise<void> => {
   const freezeUsagesOut = freezeUsages.map((f) => ({
     uid_hash: hashId('u', f.userId),
     date: f.date,
-    reason: f.reason,
+    reason: safeReason(f.reason),
     createdAt: iso(f.createdAt),
   }));
 
+  // TODO(cleanup): dau/mau/newUsers/totalUsers/totalCheckins дашборд считает
+  // из logs+users сам; уникальны тут только avgStreak/activeHabits/totalHabits.
+  // Оставлено как страховка на ранний этап; со временем можно слать только их.
   const dailySnapshotsOut = dailySnapshots.map((s) => ({
     date: s.date,
     totalUsers: s.totalUsers,
@@ -164,10 +187,22 @@ const main = async (): Promise<void> => {
     },
   };
 
+  // Таблицы целиком могут весить мегабайты (особенно analyticsEvents за
+  // полгода) → gzip, иначе nginx/Fastify режут на ~1 МБ с 413.
+  const jsonStr = JSON.stringify(payload);
+  const gz = gzipSync(Buffer.from(jsonStr));
+  console.log(
+    `[pushRaw] payload ${(jsonStr.length / 1048576).toFixed(2)} MB → gzip ${(gz.length / 1048576).toFixed(2)} MB`,
+  );
+
   const res = await fetch(`${URL.replace(/\/$/, '')}/ingest-raw`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
-    body: JSON.stringify(payload),
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Encoding': 'gzip',
+      Authorization: `Bearer ${TOKEN}`,
+    },
+    body: gz,
     signal: AbortSignal.timeout(60_000),
   });
 
