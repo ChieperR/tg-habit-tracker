@@ -13,7 +13,7 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
-    "push-analytics": "tsx src/scripts/pushAnalytics.ts",
+    "push-raw": "tsx src/scripts/pushRaw.ts",
     "prepare": "husky"
   },
   "keywords": [

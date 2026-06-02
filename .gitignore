@@ -1,5 +1,5 @@
-# Dependencies
-node_modules/
+# Dependencies (без слеша — ловит и symlink-файл, и папку)
+node_modules
 
 # Build output
 dist/
