@@ -261,7 +261,7 @@ export const createHabitDetailsKeyboard = (params: HabitDetailsKeyboardParams): 
 
   if (reminderTime) {
     keyboard
-      .text(`⏰ Напоминание: ${reminderTime}`, serializeCallback({ type: 'habit_reminder_set', habitId }))
+      .text(`⏰ Изменить время: ${reminderTime}`, serializeCallback({ type: 'habit_reminder_set', habitId }))
       .row()
       .text('🔕 Убрать напоминание', serializeCallback({ type: 'habit_reminder_remove', habitId }))
       .row();
