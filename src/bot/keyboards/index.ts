@@ -154,7 +154,7 @@ export const createSettingsKeyboard = (params: SettingsKeyboardParams): InlineKe
 
   const morningStatus = morningEnabled ? '🔔' : '🔕';
   const eveningStatus = eveningEnabled ? '🔔' : '🔕';
-  const freezeStatus = freezeEnabled ? '🧊' : '🚫';
+  const freezeStatus = '🧊';
   const tzDisplay = timezoneOffset !== null
     ? `UTC${timezoneOffset >= 0 ? '+' : ''}${timezoneOffset / 60}`
     : 'не указан';
@@ -167,7 +167,7 @@ export const createSettingsKeyboard = (params: SettingsKeyboardParams): InlineKe
     .text('✏️', 'settings:evening_time')
     .row()
     .text(
-      `${freezeStatus} Заморозки стрика: ${freezeEnabled ? 'вкл' : 'выкл'}`,
+      `${freezeStatus} Заморозки: ${freezeEnabled ? 'вкл' : 'выкл'}`,
       'settings:freeze_toggle'
     )
     .row()

@@ -34,9 +34,7 @@ export const handleSettingsCallback = async (ctx: BotContext, data: string): Pro
       case 'freeze_toggle': {
         const newValue = !user.freezeEnabled;
         await updateUserSettings(user.id, { freezeEnabled: newValue });
-        await ctx.answerCallbackQuery(
-          newValue ? '🧊 Заморозки стрика вкл' : '🚫 Заморозки стрика выкл'
-        );
+        await ctx.answerCallbackQuery(newValue ? '🧊 Заморозки вкл' : '🧊 Заморозки выкл');
         await showSettings(ctx);
         break;
       }
