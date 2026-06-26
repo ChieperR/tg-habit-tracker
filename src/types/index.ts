@@ -101,6 +101,8 @@ export type UserStats = {
   overallStreak: number;
   /** Сколько freeze в инвентаре */
   freezeCount: number;
+  /** Включены ли заморозки стрика (false = в статистике показываем «выключены») */
+  freezeEnabled: boolean;
   /** Готовый текстовый блок «графика активности» */
   activityGraph: string;
   /** Статистика по каждой привычке */
@@ -121,6 +123,8 @@ export type UserSettings = {
   morningEnabled?: boolean;
   /** Включены ли вечерние напоминания */
   eveningEnabled?: boolean;
+  /** Включены ли заморозки стрика */
+  freezeEnabled?: boolean;
 };
 
 /**

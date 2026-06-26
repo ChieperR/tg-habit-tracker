@@ -27,6 +27,7 @@ export const handleSettings = async (ctx: BotContext): Promise<void> => {
       eveningTime: user.eveningTime,
       morningEnabled: user.morningEnabled,
       eveningEnabled: user.eveningEnabled,
+      freezeEnabled: user.freezeEnabled,
       timezoneOffset: user.timezoneOffset,
     }),
   });
@@ -50,6 +51,7 @@ export const formatSettingsMessage = (timezoneOffset: number | null): string => 
 ${tzBlock}
 🔔/🔕 — включить/выключить напоминания
 ✏️ — изменить время
+🧊 — заморозки: спасают стрик за пропущенный день
 🌍 — часовой пояс (гео или вручную)
 
 ⸻
@@ -78,6 +80,7 @@ export const showSettings = async (ctx: BotContext): Promise<void> => {
       eveningTime: user.eveningTime,
       morningEnabled: user.morningEnabled,
       eveningEnabled: user.eveningEnabled,
+      freezeEnabled: user.freezeEnabled,
       timezoneOffset: user.timezoneOffset,
     }),
   });

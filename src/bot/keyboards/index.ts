@@ -139,6 +139,7 @@ export type SettingsKeyboardParams = {
   eveningTime: string;
   morningEnabled: boolean;
   eveningEnabled: boolean;
+  freezeEnabled: boolean;
   timezoneOffset: number | null;
 };
 
@@ -148,20 +149,27 @@ export type SettingsKeyboardParams = {
  * @returns Inline клавиатура
  */
 export const createSettingsKeyboard = (params: SettingsKeyboardParams): InlineKeyboard => {
-  const { morningTime, eveningTime, morningEnabled, eveningEnabled, timezoneOffset } = params;
-  
+  const { morningTime, eveningTime, morningEnabled, eveningEnabled, freezeEnabled, timezoneOffset } =
+    params;
+
   const morningStatus = morningEnabled ? '🔔' : '🔕';
   const eveningStatus = eveningEnabled ? '🔔' : '🔕';
-  const tzDisplay = timezoneOffset !== null 
-    ? `UTC${timezoneOffset >= 0 ? '+' : ''}${timezoneOffset / 60}` 
+  const freezeStatus = '🧊';
+  const tzDisplay = timezoneOffset !== null
+    ? `UTC${timezoneOffset >= 0 ? '+' : ''}${timezoneOffset / 60}`
     : 'не указан';
-  
+
   return new InlineKeyboard()
     .text(`${morningStatus} Утро: ${morningTime}`, 'settings:morning_toggle')
     .text('✏️', 'settings:morning_time')
     .row()
     .text(`${eveningStatus} Вечер: ${eveningTime}`, 'settings:evening_toggle')
     .text('✏️', 'settings:evening_time')
+    .row()
+    .text(
+      `${freezeStatus} Заморозки: ${freezeEnabled ? 'вкл' : 'выкл'}`,
+      'settings:freeze_toggle'
+    )
     .row()
     .text(`🌍 Часовой пояс: ${tzDisplay}`, 'settings:timezone')
     .row()

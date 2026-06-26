@@ -173,6 +173,7 @@ export const autoApplyFreezesForMissedDays = async (): Promise<void> => {
     select: {
       id: true,
       timezoneOffset: true,
+      freezeEnabled: true,
       freezeCount: true,
       lastFreezeEarnStreakDay: true,
       habits: {
@@ -212,7 +213,10 @@ export const autoApplyFreezesForMissedDays = async (): Promise<void> => {
     const willMiss = shouldAutoApplyFreeze(streakHabits, streakLogs, streakFreezes, todayDate);
 
     if (willMiss) {
-      if (user.freezeCount > 0) {
+      // Заморозка тратится только если юзер её не выключил. При выключенной
+      // заморозке пропуск честно обрывает стрик (заморозки копятся в фоне через
+      // earn, но не спендятся), поэтому падаем в ветку сброса checkpoint.
+      if (user.freezeEnabled && user.freezeCount > 0) {
         const yesterdayStr = getPrevDate(todayDate);
         await autoSpendFreeze(user.id, yesterdayStr).catch((err) => {
           console.error(`[freeze-cron] Ошибка списания freeze для юзера ${user.id}:`, err);

@@ -74,7 +74,15 @@ export const handleHabitToggle = async (
 
   // Streak-machinery: milestone delivery + freeze refund + freeze earn (только при отметке).
   if (newStatus) {
-    void processStreakSideEffects(ctx, user.id, user.telegramId, habitId, targetDate, todayDate);
+    void processStreakSideEffects(
+      ctx,
+      user.id,
+      user.telegramId,
+      habitId,
+      targetDate,
+      todayDate,
+      user.freezeEnabled
+    );
   }
 
   if (source === 'habit_reminder') {
@@ -173,7 +181,8 @@ const processStreakSideEffects = async (
   telegramId: bigint,
   habitId: number,
   targetDate: string,
-  todayDate: string
+  todayDate: string,
+  freezeEnabled: boolean
 ): Promise<void> => {
   try {
     // Refund freeze, если отметка не на сегодня и этот день был покрыт
@@ -210,8 +219,10 @@ const processStreakSideEffects = async (
       todayDate
     );
 
+    // Заморозки копятся в фоне всегда (чтобы при обратном включении был запас),
+    // но если юзер их выключил — не шлём уведомление о начислении.
     const earnResult = await tryEarnFreezes(userId, overallStreak);
-    if (earnResult.kind === 'earned') {
+    if (earnResult.kind === 'earned' && freezeEnabled) {
       const seed = `${userId}:${todayDate}:freeze_earned:${earnResult.newCount}`;
       const variant = pickDeterministic(FREEZE_EARNED_NOTIFICATION, seed);
       const suffix = earnResult.newCount === 2 ? FREEZE_EARNED_SUFFIX_TWO : FREEZE_EARNED_SUFFIX_ONE;

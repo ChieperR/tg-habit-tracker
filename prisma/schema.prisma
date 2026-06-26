@@ -37,6 +37,8 @@ model User {
   lastActiveAt            DateTime?
   /// Дата отправки последнего фидбэка (для rate-limit /feedback)
   lastFeedbackAt          DateTime?
+  /// Включены ли заморозки стрика. false = пропуск честно обрывает стрик; заморозки копятся в фоне, но не тратятся и не показываются юзеру
+  freezeEnabled           Boolean   @default(true)
   /// Количество заморозок стрика в инвентаре (max 2)
   freezeCount             Int       @default(0)
   /// Чекпоинт последнего overall-стрика на котором начислялась заморозка (для earn каждые 5 дней)

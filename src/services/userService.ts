@@ -110,6 +110,7 @@ export const getUserSettings = async (userId: number): Promise<UserSettings | nu
       timezoneOffset: true,
       morningEnabled: true,
       eveningEnabled: true,
+      freezeEnabled: true,
     },
   });
 
