@@ -139,7 +139,7 @@ export const getUserStats = async (
   const [user, habits, allLogsRaw, allFreezesRaw] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
-      select: { freezeCount: true },
+      select: { freezeCount: true, freezeEnabled: true },
     }),
     prisma.habit.findMany({ where: { userId } }),
     prisma.habitLog.findMany({
@@ -184,6 +184,7 @@ export const getUserStats = async (
     totalCompletions,
     overallStreak,
     freezeCount: user?.freezeCount ?? 0,
+    freezeEnabled: user?.freezeEnabled ?? true,
     activityGraph: renderActivityGraph(activeDates, todayDate),
     habitStats,
   };
@@ -202,7 +203,9 @@ export const formatStatsMessage = (stats: UserStats): string => {
   message += `📝 Активных привычек: *${stats.activeHabits}*\n`;
   message += `✅ Всего выполнений: *${stats.totalCompletions}*\n`;
   message += `🔥 Общий стрик активности: *${stats.overallStreak}* дн.\n`;
-  message += `🧊 Заморозки: *${stats.freezeCount}/${FREEZE_CAP}*\n\n`;
+  message += stats.freezeEnabled
+    ? `🧊 Заморозки: *${stats.freezeCount}/${FREEZE_CAP}*\n\n`
+    : `🧊 Заморозки: *выключены*\n\n`;
 
   message += stats.activityGraph + '\n';
   message += '━━━━━━━━━━━━━━━\n\n';

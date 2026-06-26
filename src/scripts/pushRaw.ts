@@ -124,6 +124,7 @@ const main = async (): Promise<void> => {
     timezoneOffset: u.timezoneOffset,
     morningEnabled: u.morningEnabled,
     eveningEnabled: u.eveningEnabled,
+    freezeEnabled: u.freezeEnabled,
     lastMorningReminderDate: u.lastMorningReminderDate,
     lastEveningReminderDate: u.lastEveningReminderDate,
     lastSeenChangelog: u.lastSeenChangelog,

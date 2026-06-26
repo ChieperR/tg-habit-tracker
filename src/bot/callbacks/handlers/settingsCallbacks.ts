@@ -31,6 +31,16 @@ export const handleSettingsCallback = async (ctx: BotContext, data: string): Pro
         break;
       }
 
+      case 'freeze_toggle': {
+        const newValue = !user.freezeEnabled;
+        await updateUserSettings(user.id, { freezeEnabled: newValue });
+        await ctx.answerCallbackQuery(
+          newValue ? '🧊 Заморозки стрика вкл' : '🚫 Заморозки стрика выкл'
+        );
+        await showSettings(ctx);
+        break;
+      }
+
       case 'morning_time':
         await ctx.answerCallbackQuery();
         await ctx.conversation.enter('setMorningTime');
