@@ -62,10 +62,17 @@ chmod 600 "$ENV_FILE"
 WRAPPER="$REPO/scripts/dashboard-push-cron.sh"
 chmod +x "$WRAPPER"
 
+# Папка под лог нужна до установки cron: редирект `>> logs/...` файл создаёт,
+# а директорию — нет, и задача молча падала бы при первом запуске.
+mkdir -p "$REPO/logs"
+
 # Cron: ежедневно 00:10 UTC (сразу после ежедневного снапшота в 00:05).
 # Идемпотентно — старую строку с тем же враппером убираем.
+# `|| true` после grep обязателен: на ПУСТОМ кроне `crontab -l` отдаёт код 1,
+# и под `set -euo pipefail` субшелл умирает до `echo "$CRON_LINE"` → `crontab -`
+# получает пустой ввод и задача не ставится.
 CRON_LINE="10 0 * * * $WRAPPER >> $REPO/logs/dashboard-push.log 2>&1"
-( crontab -l 2>/dev/null | grep -vF 'dashboard-push-cron.sh' ; echo "$CRON_LINE" ) | crontab -
+( crontab -l 2>/dev/null | grep -vF 'dashboard-push-cron.sh' || true ; echo "$CRON_LINE" ) | crontab -
 
 echo "✅ Готово."
 echo "   env:  $ENV_FILE (chmod 600)"
