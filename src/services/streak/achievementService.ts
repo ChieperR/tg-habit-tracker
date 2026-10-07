@@ -69,17 +69,24 @@ export const recordMilestone = async (
  * привычкой — это не firstOnly.
  *
  * Для overall: первый ли раз юзер достигает этого overall milestone'а.
+ *
+ * Если у юзера уже записан рубеж выше (той же scope) — не первый: тот, кто
+ * дошёл до 100 дней, 3 дня точно уже проходил.
  */
 export const isFirstAchievementOfMilestone = async (
   userId: number,
   scope: MilestoneScope,
   milestone: number
 ): Promise<boolean> => {
-  const count = await prisma.achievementEvent.count({
-    where: { userId, scope, milestone },
+  const events = await prisma.achievementEvent.findMany({
+    where: { userId, scope, milestone: { gte: milestone } },
+    select: { milestone: true },
   });
-  // Если только что записали (count=1) — это первый раз. Если count>1 — уже было.
-  return count === 1;
+  // Записан рубеж выше — значит, этот юзер проходил и этот, даже если записи о нём нет:
+  // серия могла перешагнуть его раньше, чем появились записи достижений.
+  if (events.some((e) => e.milestone > milestone)) return false;
+  // Только что записанный рубеж — единственный такой: первый раз.
+  return events.length === 1;
 };
 
 /**
