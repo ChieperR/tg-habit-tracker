@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
   habit: null as null | { id: number; userId: number; isActive: boolean; deletedDate: string | null; name: string; emoji: string },
   toggles: [] as unknown[][],
   answers: [] as string[],
+  log: null as null | { completed: boolean },
 }));
 
 vi.mock('../../../services/userService.js', () => ({
@@ -21,6 +22,7 @@ vi.mock('../../../services/habitService.js', () => ({
   getUserHabitsWithTodayStatus: async () => [],
   getUserHabitsWithDateStatus: async () => [],
   getHabitReminders: async () => [],
+  getHabitLog: async () => state.log,
   removeHabitReminder: async () => null,
 }));
 vi.mock('../../../utils/telegram.js', () => ({
@@ -58,6 +60,23 @@ describe('handleHabitToggle: удалённая привычка', () => {
     await handleHabitToggle(ctx, 5, undefined, '2026-01-09');
     expect(state.toggles).toEqual([]);
     expect(state.answers).toEqual(['🗑 Привычка удалена']);
+  });
+
+  it('«✅ Выполнено» во втором напоминании за день не снимает уже поставленную отметку', async () => {
+    state.habit = { id: 6, userId: 1, isActive: true, deletedDate: null, name: 'Чтение', emoji: '📚' };
+    state.log = { completed: true };
+    await handleHabitToggle(ctx, 6, 'habit_reminder');
+    expect(state.toggles).toEqual([]);
+    expect(state.answers).toEqual(['✅ Уже отмечено']);
+    state.log = null;
+  });
+
+  it('«↩️ Отменить» в напоминании снимает отметку', async () => {
+    state.habit = { id: 6, userId: 1, isActive: true, deletedDate: null, name: 'Чтение', emoji: '📚' };
+    state.log = { completed: true };
+    await handleHabitToggle(ctx, 6, 'habit_reminder_undo');
+    expect(state.toggles).toEqual([[6, 180, '2026-01-10']]);
+    state.log = null;
   });
 
   it('активная привычка из старого напоминания отмечается за день сообщения', async () => {

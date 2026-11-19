@@ -3,7 +3,7 @@
  * @module services/reminder/habitReminderSlots
  */
 
-import { parseTime } from '../../utils/date.js';
+import { formatYMDUtc, getNowInTimezone, parseTime } from '../../utils/date.js';
 
 /** Сколько персональных напоминаний может быть у одной привычки. */
 export const MAX_HABIT_REMINDERS = 5;
@@ -47,6 +47,15 @@ export const initialLastSentDate = (
   nowMinutes: number,
   todayDate: string
 ): string | null => (toMinutes(time) <= nowMinutes ? todayDate : null);
+
+/**
+ * Сегодняшний день и минуты с полуночи в поясе юзера из одного чтения часов —
+ * чтобы около полуночи дата и минуты не оказались из разных суток.
+ */
+export const nowInTimezone = (timezoneOffset: number): { today: string; minutes: number } => {
+  const now = getNowInTimezone(timezoneOffset);
+  return { today: formatYMDUtc(now), minutes: now.getUTCHours() * 60 + now.getUTCMinutes() };
+};
 
 /** Сортирует времена HH:MM по возрастанию. */
 export const sortTimes = (times: string[]): string[] => [...times].sort((a, b) => a.localeCompare(b));

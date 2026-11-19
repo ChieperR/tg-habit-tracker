@@ -274,7 +274,7 @@ export const createHabitDetailsKeyboard = (params: HabitDetailsKeyboardParams): 
       .row();
   } else {
     keyboard
-      .text('⏰ Установить напоминание', serializeCallback({ type: 'habit_reminder_set', habitId }))
+      .text('⏰ Установить напоминание', serializeCallback({ type: 'habit_reminder_add', habitId }))
       .row();
   }
 
@@ -306,11 +306,11 @@ export const createHabitRemindersKeyboard = (
   for (const r of reminders) {
     keyboard
       .text(`✏️ ${r.time}`, serializeCallback({ type: 'habit_reminder_change', reminderId: r.id }))
-      .text('🔕 Убрать', serializeCallback({ type: 'habit_reminder_delete', reminderId: r.id }))
+      .text('🔕 Убрать', serializeCallback({ type: 'habit_reminder_delete', reminderId: r.id, time: r.time }))
       .row();
   }
   if (reminders.length < maxReminders) {
-    keyboard.text('➕ Добавить время', serializeCallback({ type: 'habit_reminder_set', habitId })).row();
+    keyboard.text('➕ Добавить время', serializeCallback({ type: 'habit_reminder_add', habitId })).row();
   }
   keyboard.text('◀️ Назад', serializeCallback({ type: 'habit_details', habitId }));
   return keyboard;
@@ -328,7 +328,7 @@ export const createHabitCreatedKeyboard = (habitId: number, opts?: { isDueToday:
     kb.text(`${status} ${opts.emoji}`, serializeCallback({ type: 'habit_toggle', habitId, source: 'habit_created' }));
     kb.row();
   }
-  kb.text('⏰ Добавить напоминание', serializeCallback({ type: 'habit_reminder_set', habitId }));
+  kb.text('⏰ Добавить напоминание', serializeCallback({ type: 'habit_reminder_add', habitId }));
   kb.row();
   kb.text('📝 К привычкам', serializeCallback({ type: 'habits_list' }));
   return kb;

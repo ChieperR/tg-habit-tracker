@@ -271,7 +271,10 @@ export const setHabitReminderConversation = async (
 
   const callbackData = ctx.callbackQuery?.data;
   const action = callbackData ? parseCallback(callbackData) : null;
-  const habitId = action && action.type === 'habit_reminder_set' ? action.habitId : undefined;
+  const habitId =
+    action && (action.type === 'habit_reminder_add' || action.type === 'habit_reminder_set')
+      ? action.habitId
+      : undefined;
 
   if (!habitId) {
     await ctx.reply('❌ Привычка не найдена', { reply_markup: createMainMenuKeyboard() });

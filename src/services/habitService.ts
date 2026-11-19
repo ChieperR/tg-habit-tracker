@@ -9,7 +9,7 @@ import {
   getCurrentMinutesInTimezone,
   DEFAULT_TIMEZONE_OFFSET,
 } from '../utils/date.js';
-import { MAX_HABIT_REMINDERS, initialLastSentDate, sortTimes } from './reminder/habitReminderSlots.js';
+import { MAX_HABIT_REMINDERS, initialLastSentDate, nowInTimezone, sortTimes } from './reminder/habitReminderSlots.js';
 
 /**
  * Сервис для работы с привычками
@@ -341,24 +341,23 @@ export const addHabitReminders = async (
   const habit = await findOwnActiveHabit(habitId, userId);
   if (!habit) return { kind: 'not_found' };
 
-  const existing = await getHabitReminders(habitId);
-  const existingTimes = new Set(existing.map((r) => r.time));
-  const fresh = times.filter((t) => !existingTimes.has(t));
-  if (existing.length + fresh.length > MAX_HABIT_REMINDERS) {
-    return { kind: 'limit', free: Math.max(0, MAX_HABIT_REMINDERS - existing.length) };
-  }
-
-  const today = getTodayDate(habit.timezoneOffset);
-  const nowMinutes = getCurrentMinutesInTimezone(habit.timezoneOffset);
-  for (const time of fresh) {
-    await prisma.habitReminder.upsert({
-      where: { habitId_time: { habitId, time } },
-      create: { habitId, time, lastSentDate: initialLastSentDate(time, nowMinutes, today) },
-      update: {},
-    });
-  }
-
-  return { kind: 'added', times: sortTimes([...existingTimes, ...fresh]) };
+  const { today, minutes: nowMinutes } = nowInTimezone(habit.timezoneOffset);
+  // Подсчёт и запись в одной транзакции: лимит не обходится параллельным
+  // добавлением, пакет времён пишется целиком или никак.
+  return prisma.$transaction(async (tx): Promise<AddRemindersResult> => {
+    const existing = await tx.habitReminder.findMany({ where: { habitId }, select: { time: true } });
+    const existingTimes = new Set(existing.map((r) => r.time));
+    const fresh = times.filter((t) => !existingTimes.has(t));
+    if (existing.length + fresh.length > MAX_HABIT_REMINDERS) {
+      return { kind: 'limit', free: Math.max(0, MAX_HABIT_REMINDERS - existing.length) };
+    }
+    for (const time of fresh) {
+      await tx.habitReminder.create({
+        data: { habitId, time, lastSentDate: initialLastSentDate(time, nowMinutes, today) },
+      });
+    }
+    return { kind: 'added', times: sortTimes([...existingTimes, ...fresh]) };
+  });
 };
 
 /**
@@ -384,8 +383,7 @@ export const changeHabitReminderTime = async (
   });
   if (clash) return { kind: 'exists', habitId: reminder.habitId };
 
-  const today = getTodayDate(habit.timezoneOffset);
-  const nowMinutes = getCurrentMinutesInTimezone(habit.timezoneOffset);
+  const { today, minutes: nowMinutes } = nowInTimezone(habit.timezoneOffset);
   await prisma.habitReminder.update({
     where: { id: reminderId },
     data: { time, lastSentDate: initialLastSentDate(time, nowMinutes, today) },
@@ -394,15 +392,18 @@ export const changeHabitReminderTime = async (
 };
 
 /**
- * Убирает одно напоминание.
+ * Убирает одно напоминание. `shownTime` — время, подписанное на нажатой
+ * кнопке: если напоминание с тех пор перенесли, ничего не удаляется.
  * @returns habitId привычки, если напоминание было у своей активной привычки и удалено; иначе null.
  */
 export const removeHabitReminder = async (
   reminderId: number,
-  userId: number
+  userId: number,
+  shownTime?: string
 ): Promise<number | null> => {
   const reminder = await prisma.habitReminder.findUnique({ where: { id: reminderId } });
-  if (!reminder) return null;
+  // Кнопка из устаревшего списка: время уже изменили — не удаляем вслепую.
+  if (!reminder || (shownTime !== undefined && reminder.time !== shownTime)) return null;
   const habit = await findOwnActiveHabit(reminder.habitId, userId);
   if (!habit) return null;
   await prisma.habitReminder.delete({ where: { id: reminderId } });

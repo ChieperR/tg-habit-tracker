@@ -134,7 +134,7 @@ export type CallbackAction =
   | { type: 'habits_list' }
   | { type: 'habits_day'; date: string }
   | { type: 'habit_add' }
-  | { type: 'habit_toggle'; habitId: number; date?: string; source?: 'evening_reminder' | 'habit_reminder' | 'habit_created' }
+  | { type: 'habit_toggle'; habitId: number; date?: string; source?: 'evening_reminder' | 'habit_reminder' | 'habit_reminder_undo' | 'habit_created' }
   | { type: 'habit_delete'; habitId: number }
   | { type: 'habit_confirm_delete'; habitId: number }
   | { type: 'habit_details'; habitId: number }
@@ -146,8 +146,9 @@ export type CallbackAction =
   | { type: 'weekly_next'; weekStart: string }
   | { type: 'habit_reminders'; habitId: number }
   | { type: 'habit_reminder_set'; habitId: number }
+  | { type: 'habit_reminder_add'; habitId: number }
   | { type: 'habit_reminder_change'; reminderId: number }
-  | { type: 'habit_reminder_delete'; reminderId: number }
+  | { type: 'habit_reminder_delete'; reminderId: number; time?: string }
   | { type: 'settings' }
   | { type: 'settings_morning'; time: string }
   | { type: 'settings_evening'; time: string }

@@ -16,7 +16,7 @@ import { trackEvent } from '../analyticsService.js';
 import { sendMorningReminder, sendEveningReminder } from './senders.js';
 import { handleDeliveryError } from './delivery.js';
 import { buildPerHabitReminder } from './textBuilder.js';
-import { pickPendingSlots } from './habitReminderSlots.js';
+import { nowInTimezone, pickPendingSlots } from './habitReminderSlots.js';
 import { shouldAutoApplyFreeze, type StreakHabit, type StreakHabitLog, type StreakFreezeUsage } from '../streak/calculator.js';
 import { autoSpendFreeze } from '../streak/freezeService.js';
 
@@ -89,12 +89,8 @@ export const checkAndSendHabitReminders = async (
 
   for (const habit of habits) {
     const timezoneOffset = habit.user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET;
-    const todayDate = getTodayDate(timezoneOffset);
-    const pending = pickPendingSlots(
-      habit.reminders,
-      getCurrentMinutesInTimezone(timezoneOffset),
-      todayDate
-    );
+    const { today: todayDate, minutes: nowMinutes } = nowInTimezone(timezoneOffset);
+    const pending = pickPendingSlots(habit.reminders, nowMinutes, todayDate);
     if (pending.length === 0) continue;
 
     const lastCompletedLog = await prisma.habitLog.findFirst({
@@ -148,8 +144,10 @@ export const checkAndSendHabitReminders = async (
       }
     }
 
+    // Сверяем и время: если юзер перенёс напоминание, пока шла рассылка,
+    // новое время не должно оказаться «уже отправленным».
     await prisma.habitReminder.updateMany({
-      where: { id: { in: pending.map((r) => r.id) } },
+      where: { OR: pending.map((r) => ({ id: r.id, time: r.time })) },
       data: { lastSentDate: todayDate },
     });
   }

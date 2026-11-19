@@ -145,7 +145,7 @@ const main = async (): Promise<void> => {
     frequencyDays: h.frequencyDays,
     weekdays: h.weekdays,
     reminderTime: h.reminders[0]?.time ?? null,
-    reminderTimes: h.reminders.map((r) => r.time),
+    reminders: h.reminders.map((r) => ({ time: r.time, lastSentDate: r.lastSentDate })),
     lastHabitReminderDate: h.reminders.reduce<string | null>(
       (max, r) => (r.lastSentDate && (!max || r.lastSentDate > max) ? r.lastSentDate : max),
       null

@@ -21,6 +21,7 @@ export const serializeCallback = (action: CallbackAction): string => {
     case 'habit_toggle':
       if (action.source === 'evening_reminder') return `h:tog:${action.habitId}:er`;
       if (action.source === 'habit_reminder') return `h:tog:${action.habitId}:hr`;
+      if (action.source === 'habit_reminder_undo') return `h:tog:${action.habitId}:hu`;
       if (action.source === 'habit_created') return `h:tog:${action.habitId}:hc`;
       if (action.date) return `h:tog:${action.habitId}:${action.date}`;
       return `h:tog:${action.habitId}`;
@@ -38,10 +39,14 @@ export const serializeCallback = (action: CallbackAction): string => {
       return `h:rem:${action.habitId}`;
     case 'habit_reminder_set':
       return `h:rset:${action.habitId}`;
+    case 'habit_reminder_add':
+      return `h:radd:${action.habitId}`;
     case 'habit_reminder_change':
       return `h:rch:${action.reminderId}`;
     case 'habit_reminder_delete':
-      return `h:rdl:${action.reminderId}`;
+      return action.time
+        ? `h:rdl:${action.reminderId}:${action.time.replace(':', '')}`
+        : `h:rdl:${action.reminderId}`;
     case 'stats':
       return 's:main';
     case 'weekly_show':
@@ -109,6 +114,7 @@ export const parseCallback = (data: string): CallbackAction | null => {
           const extra = parts[3];
           if (extra === 'er') return { type: 'habit_toggle', habitId, source: 'evening_reminder' as const };
           if (extra === 'hr') return { type: 'habit_toggle', habitId, source: 'habit_reminder' as const };
+          if (extra === 'hu') return { type: 'habit_toggle', habitId, source: 'habit_reminder_undo' as const };
           if (extra === 'hc') return { type: 'habit_toggle', habitId, source: 'habit_created' as const };
           if (extra?.includes('-')) return { type: 'habit_toggle', habitId, date: extra };
           return { type: 'habit_toggle', habitId };
@@ -143,6 +149,11 @@ export const parseCallback = (data: string): CallbackAction | null => {
           if (isNaN(habitId)) return null;
           return { type: 'habit_reminder_set', habitId };
         }
+        case 'radd': {
+          const habitId = parseInt(parts[2] ?? '', 10);
+          if (isNaN(habitId)) return null;
+          return { type: 'habit_reminder_add', habitId };
+        }
         case 'rem':
         // `rrem` — «Убрать напоминание» из сообщений, когда напоминание было одно:
         // теперь открывает список напоминаний привычки.
@@ -159,7 +170,10 @@ export const parseCallback = (data: string): CallbackAction | null => {
         case 'rdl': {
           const reminderId = parseInt(parts[2] ?? '', 10);
           if (isNaN(reminderId)) return null;
-          return { type: 'habit_reminder_delete', reminderId };
+          const hhmm = parts[3];
+          return hhmm && /^\d{4}$/.test(hhmm)
+            ? { type: 'habit_reminder_delete', reminderId, time: `${hhmm.slice(0, 2)}:${hhmm.slice(2)}` }
+            : { type: 'habit_reminder_delete', reminderId };
         }
       }
       break;

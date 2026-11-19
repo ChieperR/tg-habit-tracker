@@ -1,12 +1,15 @@
 /**
  * Разовый перенос персональных напоминаний из `Habit.reminderTime` в таблицу
- * `HabitReminder`. Переносит только активные привычки; `lastHabitReminderDate`
- * становится `lastSentDate`, чтобы сегодняшнее напоминание не пришло второй раз.
+ * `HabitReminder`, в том числе у удалённых привычек (для истории в выгрузке;
+ * планировщик их не берёт). `lastHabitReminderDate` становится `lastSentDate`,
+ * чтобы сегодняшнее напоминание не пришло второй раз.
  *
- * Привычка, у которой в `HabitReminder` уже есть это время, пропускается —
- * повторный запуск ничего не меняет.
+ * Привычка, у которой в `HabitReminder` уже есть хоть одно время, пропускается:
+ * повторный запуск ничего не меняет и не возвращает время, которое юзер успел
+ * убрать или перенести.
  *
- * Запуск: `node dist/scripts/backfillHabitReminders.js [--dry-run]`
+ * Запускать при остановленном боте, до старта новой версии:
+ * `node dist/scripts/backfillHabitReminders.js [--dry-run]`
  *
  * @module scripts/backfillHabitReminders
  */
@@ -16,7 +19,7 @@ const main = async (): Promise<void> => {
   const dryRun = process.argv.includes('--dry-run');
 
   const habits = await prisma.habit.findMany({
-    where: { isActive: true, reminderTime: { not: null } },
+    where: { reminderTime: { not: null } },
     select: {
       id: true,
       reminderTime: true,
@@ -25,20 +28,20 @@ const main = async (): Promise<void> => {
     },
   });
 
-  const toCreate = habits.filter(
-    (h) => h.reminderTime !== null && !h.reminders.some((r) => r.time === h.reminderTime)
-  );
+  const toCreate = habits.filter((h) => h.reminderTime !== null && h.reminders.length === 0);
 
   if (!dryRun) {
     for (const h of toCreate) {
-      await prisma.habitReminder.create({
-        data: { habitId: h.id, time: h.reminderTime!, lastSentDate: h.lastHabitReminderDate },
+      await prisma.habitReminder.upsert({
+        where: { habitId_time: { habitId: h.id, time: h.reminderTime! } },
+        create: { habitId: h.id, time: h.reminderTime!, lastSentDate: h.lastHabitReminderDate },
+        update: {},
       });
     }
   }
 
   console.log(
-    `${dryRun ? '[dry-run] ' : ''}активных привычек с reminderTime: ${habits.length}, ` +
+    `${dryRun ? '[dry-run] ' : ''}привычек с reminderTime: ${habits.length}, ` +
       `перенести: ${toCreate.length}${dryRun ? '' : ' — перенесено'}`
   );
 };
