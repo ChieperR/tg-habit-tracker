@@ -129,7 +129,19 @@ describe('getUserStats: удалённые привычки', () => {
     expect(msg).not.toContain('Добавь первую');
     expect(msg).toContain('Активных привычек: *0*');
     expect(msg).toContain('Всего выполнений: *2*');
+    expect(msg).toContain('Общий стрик активности: *2*');
+    expect(msg).not.toContain('━━━');
     expect(countGreen(msg)).toBe(2);
+  });
+
+  it.each([
+    ['привычек не было', [], []],
+    ['удалённая без отметок', [habit(1, false)], []],
+    ['удалённая только со снятой отметкой', [habit(1, false)], [{ habitId: 1, date: '2026-01-14', completed: false }]],
+  ] as const)('нет выполнений (%s) → «Добавь первую»', async (_name, habits, logs) => {
+    db.habits = [...habits];
+    db.logs = [...logs];
+    expect(formatStatsMessage(await getUserStats(1, 180))).toContain('Добавь первую');
   });
 
   it('общий стрик держится на отметках удалённой привычки', async () => {
@@ -141,28 +153,3 @@ describe('getUserStats: удалённые привычки', () => {
   });
 });
 
-describe('formatStatsMessage: все привычки удалены', () => {
-  const base = {
-    totalHabits: 0,
-    activeHabits: 0,
-    totalCompletions: 0,
-    overallStreak: 0,
-    freezeCount: 0,
-    freezeEnabled: true,
-    activityGraph: '📊 *Активность*',
-    habitStats: [],
-  };
-
-  it('без истории — приглашение добавить первую привычку', () => {
-    expect(formatStatsMessage(base)).toContain('Добавь первую');
-  });
-
-  it('с историей — показывает стрик и график, а не «добавь первую»', () => {
-    const msg = formatStatsMessage({ ...base, totalHabits: 1, totalCompletions: 12, overallStreak: 5 });
-    expect(msg).not.toContain('Добавь первую');
-    expect(msg).toContain('Всего выполнений: *12*');
-    expect(msg).toContain('Общий стрик активности: *5*');
-    expect(msg).toContain('📊 *Активность*');
-    expect(msg).not.toContain('━━━');
-  });
-});
