@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { computeCompletionRate, renderActivityGraph, getUserStats } from './statsService.js';
+import { computeCompletionRate, renderActivityGraph, getUserStats, formatStatsMessage } from './statsService.js';
 
 type MockHabit = {
   id: number;
@@ -122,11 +122,47 @@ describe('getUserStats: удалённые привычки', () => {
     expect(stats.activeHabits).toBe(1);
   });
 
+  it('все привычки удалены: /stats показывает историю с зелёными днями', async () => {
+    db.habits = [habit(1, false)];
+    db.logs = [done(1, '2026-01-13'), done(1, '2026-01-14')];
+    const msg = formatStatsMessage(await getUserStats(1, 180));
+    expect(msg).not.toContain('Добавь первую');
+    expect(msg).toContain('Активных привычек: *0*');
+    expect(msg).toContain('Всего выполнений: *2*');
+    expect(countGreen(msg)).toBe(2);
+  });
+
   it('общий стрик держится на отметках удалённой привычки', async () => {
     db.habits = [habit(1, false)];
     db.logs = [done(1, '2026-01-13'), done(1, '2026-01-14'), done(1, '2026-01-15')];
     const stats = await getUserStats(1, 180);
     expect(stats.overallStreak).toBe(3);
     expect(stats.totalCompletions).toBe(3);
+  });
+});
+
+describe('formatStatsMessage: все привычки удалены', () => {
+  const base = {
+    totalHabits: 0,
+    activeHabits: 0,
+    totalCompletions: 0,
+    overallStreak: 0,
+    freezeCount: 0,
+    freezeEnabled: true,
+    activityGraph: '📊 *Активность*',
+    habitStats: [],
+  };
+
+  it('без истории — приглашение добавить первую привычку', () => {
+    expect(formatStatsMessage(base)).toContain('Добавь первую');
+  });
+
+  it('с историей — показывает стрик и график, а не «добавь первую»', () => {
+    const msg = formatStatsMessage({ ...base, totalHabits: 1, totalCompletions: 12, overallStreak: 5 });
+    expect(msg).not.toContain('Добавь первую');
+    expect(msg).toContain('Всего выполнений: *12*');
+    expect(msg).toContain('Общий стрик активности: *5*');
+    expect(msg).toContain('📊 *Активность*');
+    expect(msg).not.toContain('━━━');
   });
 });

@@ -193,7 +193,7 @@ export const getUserStats = async (
  * `getUserStats` — здесь только сборка строки, без БД запросов.
  */
 export const formatStatsMessage = (stats: UserStats): string => {
-  if (stats.activeHabits === 0) {
+  if (stats.activeHabits === 0 && stats.totalCompletions === 0) {
     return '📊 *Статистика*\n\nУ тебя пока нет привычек. Добавь первую! ✨';
   }
 
@@ -206,7 +206,7 @@ export const formatStatsMessage = (stats: UserStats): string => {
     : `🧊 Заморозки: *выключены*\n\n`;
 
   message += stats.activityGraph + '\n';
-  message += '━━━━━━━━━━━━━━━\n\n';
+  if (stats.habitStats.length > 0) message += '━━━━━━━━━━━━━━━\n\n';
 
   for (const habit of stats.habitStats) {
     const recordSuffix =
