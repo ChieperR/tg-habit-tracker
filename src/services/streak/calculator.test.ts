@@ -277,6 +277,19 @@ describe('countConsecutiveMissedDays', () => {
   it('нет активных привычек → 0', () => {
     expect(countConsecutiveMissedDays([daily(1, '2026-01-01', false)], [], [], '2026-01-10')).toBe(0);
   });
+
+  it('отметки удалённой привычки — не пропуск', () => {
+    const withDeleted = [daily(1, '2026-01-01'), daily(2, '2026-01-01', false)];
+    const logs = ['2026-01-06', '2026-01-07', '2026-01-08', '2026-01-09'].map((d) => log(2, d));
+    expect(countConsecutiveMissedDays(withDeleted, logs, [], '2026-01-10')).toBe(0);
+  });
+
+  it('пропуски считаются до последнего дня с отметкой удалённой привычки', () => {
+    const withDeleted = [daily(1, '2026-01-01'), daily(2, '2026-01-01', false)];
+    const logs = [log(2, '2026-01-06')];
+    // 01-09, 01-08, 01-07 — пропуски, 01-06 — отметка удалённой → стоп
+    expect(countConsecutiveMissedDays(withDeleted, logs, [], '2026-01-10')).toBe(3);
+  });
 });
 
 describe('countHabitConsecutiveMissedDueDays', () => {
@@ -316,6 +329,15 @@ describe('shouldAutoApplyFreeze', () => {
     const weekHabits = [weekly(1, '2026-01-01', '1')]; // Mon only
     // today 01-07 (Wed) → вчера 01-06 (Tue) не due
     expect(shouldAutoApplyFreeze(weekHabits, [], [], '2026-01-07')).toBe(false);
+  });
+
+  it('вчера отмечена только удалённая привычка → false', () => {
+    const withDeleted = [daily(1, '2026-01-01'), daily(2, '2026-01-01', false)];
+    expect(shouldAutoApplyFreeze(withDeleted, [log(2, '2026-01-09')], [], '2026-01-10')).toBe(false);
+  });
+
+  it('снятая отметка (completed=false) не считается', () => {
+    expect(shouldAutoApplyFreeze(habits, [log(1, '2026-01-09', false)], [], '2026-01-10')).toBe(true);
   });
 });
 

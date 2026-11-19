@@ -342,11 +342,11 @@ export const isPerfectDay = (
 };
 
 /**
- * Считает количество дней подряд назад от yesterdayDate, где НИ ОДНА due-привычка
- * не выполнена И день не покрыт freeze. Останавливается на первом дне с
- * активностью / freeze / no-due (без due-привычек = нейтрально, продолжаем
- * считать назад? — нет, тогда missed_X не имеет смысла, нейтральный день не
- * считается missed. Прерываемся на нейтральный день, чтобы не overestimate).
+ * Считает количество дней подряд назад от yesterdayDate, где были due-привычки,
+ * но нет ни одной отметки (любой привычки, в том числе удалённой) и день не
+ * покрыт freeze — то есть дней, которые обрывают overall streak. Останавливается
+ * на первом дне с отметкой / freeze / без due-привычек (нейтральный день не
+ * считается missed, иначе счётчик завышается).
  *
  * Используется для определения bucket'а (missed_1/3/few/week/long).
  *
@@ -378,12 +378,12 @@ export const countConsecutiveMissedDays = (
   for (let i = 0; i < maxDays; i++) {
     if (frozenDates.has(cursor)) break;
 
+    // Любая отметка дня (в том числе удалённой привычки) делает его активным —
+    // как в calculateOverallStreak.
+    if ((completedByDate.get(cursor)?.size ?? 0) > 0) break;
+
     const dueHabits = activeHabits.filter((h) => isHabitDue(h, cursor, logs));
     if (dueHabits.length === 0) break; // нейтральный день, останавливаемся
-
-    const completedSet = completedByDate.get(cursor) ?? new Set();
-    const anyCompleted = dueHabits.some((h) => completedSet.has(h.id));
-    if (anyCompleted) break;
 
     missed++;
     cursor = format(subDays(parse(cursor, 'yyyy-MM-dd', new Date()), 1), 'yyyy-MM-dd');
@@ -430,8 +430,8 @@ export const countHabitConsecutiveMissedDueDays = (
 };
 
 /**
- * Был ли вчера хоть один due-день без отметки И без freeze (нужно ли применять
- * freeze в утреннем cron'е).
+ * Нужно ли применять freeze в утреннем cron'е: вчера были due-привычки, но нет
+ * ни одной отметки (любой привычки, в том числе удалённой) и нет freeze.
  */
 export const shouldAutoApplyFreeze = (
   habits: StreakHabit[],
@@ -450,11 +450,9 @@ export const shouldAutoApplyFreeze = (
   const frozenDates = new Set(freezeUsages.map((f) => f.date));
   if (frozenDates.has(yesterday)) return false;
 
-  const completedYesterday = new Set(
-    logs.filter((l) => l.date === yesterday && l.completed).map((l) => l.habitId)
-  );
-  const anyCompleted = dueYesterday.some((h) => completedYesterday.has(h.id));
-  return !anyCompleted;
+  // Отметка любой привычки, в том числе удалённой, уже держит стрик за этот
+  // день (см. calculateOverallStreak) — заморозка не нужна.
+  return !logs.some((l) => l.date === yesterday && l.completed);
 };
 
 /**
