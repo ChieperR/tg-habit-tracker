@@ -10,7 +10,7 @@ import { createEveningChecklistKeyboard, createDeleteConfirmKeyboard, createHabi
 import { formatScheduleText } from '../../../utils/format.js';
 import { escapeMarkdown } from '../../../utils/telegram.js';
 import { prisma } from '../../../db/index.js';
-import { formatYMDUtc, getTodayDate } from '../../../utils/date.js';
+import { formatYMDUtc, getTodayDate, DEFAULT_TIMEZONE_OFFSET } from '../../../utils/date.js';
 import { detectAndSendMilestones } from '../../../services/streak/milestoneDelivery.js';
 import { tryEarnFreezes, refundFreeze } from '../../../services/streak/freezeService.js';
 import { buildEveningReminder } from '../../../services/reminder/textBuilder.js';
@@ -62,6 +62,12 @@ export const handleHabitToggle = async (
     }
   }
   const targetDate = effectiveDate ?? todayDate;
+  // Кнопки старых сообщений: отметки удалённой привычки застывают в момент
+  // удаления, переключать их нельзя ни за какой день.
+  if (!habit.isActive) {
+    await safeAnswerCallback(ctx, '🗑 Привычка удалена');
+    return;
+  }
   const newStatus = await toggleHabitCompletion(habitId, timezoneOffset, effectiveDate);
   const statusText = newStatus ? '✅ Выполнено!' : '⬜ Отменено';
 
@@ -288,8 +294,8 @@ export const handleHabitConfirmDelete = async (ctx: BotContext, habitId: number)
     return;
   }
 
-  await deleteHabit(habitId);
-  void trackEvent(user.id, 'habit_delete', { habitId });
+  const deleted = await deleteHabit(habitId, user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET);
+  if (deleted) void trackEvent(user.id, 'habit_delete', { habitId });
   await ctx.answerCallbackQuery('🗑 Привычка удалена');
   await showHabitsList(ctx);
 };

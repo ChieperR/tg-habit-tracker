@@ -17,6 +17,7 @@ const daily = (id: number, createdAt: string, isActive = true): StreakHabit => (
   weekdays: null,
   createdAt: toDate(createdAt),
   isActive,
+  deletedDate: null,
 });
 
 const log = (habitId: number, date: string, completed = true): StreakHabitLog => ({ habitId, date, completed });

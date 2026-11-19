@@ -51,6 +51,7 @@ const computeHabitStats = (
     weekdays: string | null;
     createdAt: Date;
     isActive: boolean;
+    deletedDate: string | null;
   },
   allLogs: StreakHabitLog[],
   allFreezes: StreakFreezeUsage[],
@@ -67,6 +68,7 @@ const computeHabitStats = (
     weekdays: habit.weekdays,
     createdAt: habit.createdAt,
     isActive: habit.isActive,
+    deletedDate: habit.deletedDate,
   };
 
   const currentStreak = calculatePerHabitStreak(streakHabit, allLogs, allFreezes, todayDate, {
@@ -170,13 +172,9 @@ export const getUserStats = async (
       ? calculateOverallStreak(habits, allLogs, allFreezes, todayDate, { lenientToday: true })
       : 0;
 
-  // Активные дни для графика — все даты, где есть completion хотя бы по одной
-  // активной привычке. Старая версия фильтровала по `habit.isActive`, делаем
-  // так же.
-  const activeHabitIds = new Set(activeHabits.map((h) => h.id));
-  const activeDates = new Set(
-    allLogs.filter((l) => l.completed && activeHabitIds.has(l.habitId)).map((l) => l.date)
-  );
+  // Отметки удалённых привычек тоже красят свои дни: удаление привычки не
+  // стирает историю (так же считается и общий стрик).
+  const activeDates = new Set(allLogs.filter((l) => l.completed).map((l) => l.date));
 
   return {
     totalHabits: habits.length,

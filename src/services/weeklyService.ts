@@ -18,7 +18,18 @@ export type HabitWeekRow = {
   name: string;
   emoji: string;
   scheduleLabel: string;
+  /** Привычка удалена (показывается только в неделях, где есть её история) */
+  deleted: boolean;
   states: DayState[];
+};
+
+/** Поля привычки, нужные для состояний дней недели */
+type WeekHabit = {
+  frequencyType: string;
+  frequencyDays: number;
+  weekdays: string | null;
+  createdAt: Date;
+  deletedDate: string | null;
 };
 
 const WEEKDAY_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
@@ -50,20 +61,6 @@ export const getScheduleLabel = (habit: {
 };
 
 /**
- * Возвращает дату первого выполнения привычки (YYYY-MM-DD) или null
- * @param habitId - ID привычки
- * @returns Дата первого выполнения или null
- */
-export const getFirstCompletionDate = async (habitId: number): Promise<string | null> => {
-  const log = await prisma.habitLog.findFirst({
-    where: { habitId, completed: true },
-    orderBy: { date: 'asc' },
-    select: { date: true },
-  });
-  return log?.date ?? null;
-};
-
-/**
  * Определяет, была ли привычка запланирована на дату (для interval нужна referenceDate)
  * @param habit - Привычка из БД
  * @param dateStr - Дата YYYY-MM-DD
@@ -87,59 +84,39 @@ export const wasHabitDueOnDate = (
 };
 
 /**
- * Возвращает состояния 7 дней недели для одной привычки
- * @param habitId - ID привычки
+ * Pure: состояния 7 дней недели одной привычки по уже загруженным отметкам и
+ * заморозкам. У удалённой привычки дни начиная с дня удаления — `off`
+ * (как дни до создания), отметки при этом остаются `done`.
+ * @param habit - Привычка
  * @param weekStartMonday - Понедельник недели (YYYY-MM-DD)
- * @param timezoneOffset - Смещение часового пояса
- * @returns Массив из 7 состояний: done | missed | off | future
+ * @param today - Сегодня у юзера (YYYY-MM-DD)
+ * @param completedDates - Даты выполнений привычки
+ * @param frozenDates - Даты заморозок юзера
+ * @param firstCompletion - Дата первого выполнения или null
+ * @returns Массив из 7 состояний
  */
-export const getWeekStatesForHabit = async (
-  habitId: number,
+export const computeWeekStates = (
+  habit: WeekHabit,
   weekStartMonday: string,
-  timezoneOffset: number = 180
-): Promise<DayState[]> => {
-  const today = getTodayDate(timezoneOffset);
-  const habit = await prisma.habit.findUnique({
-    where: { id: habitId },
-  });
-  if (!habit) {
-    return ['off', 'off', 'off', 'off', 'off', 'off', 'off'];
-  }
-
-  const firstCompletion = await getFirstCompletionDate(habitId);
+  today: string,
+  completedDates: Set<string>,
+  frozenDates: Set<string>,
+  firstCompletion: string | null
+): DayState[] => {
   const monday = parse(weekStartMonday, 'yyyy-MM-dd', new Date());
-  const weekEndStr = format(addDays(monday, 6), 'yyyy-MM-dd');
-
-  const [completedLogs, freezeUsages] = await Promise.all([
-    prisma.habitLog.findMany({
-      where: {
-        habitId,
-        completed: true,
-        date: { gte: weekStartMonday, lte: weekEndStr },
-      },
-      select: { date: true },
-    }),
-    prisma.freezeUsage.findMany({
-      where: { userId: habit.userId, date: { gte: weekStartMonday, lte: weekEndStr } },
-      select: { date: true },
-    }),
-  ]);
-
-  const completedDates = new Set(completedLogs.map((l) => l.date));
-  const frozenDates = new Set(freezeUsages.map((f) => f.date));
-
   const habitCreatedDate = format(habit.createdAt, 'yyyy-MM-dd');
 
   const states: DayState[] = [];
   for (let d = 0; d < 7; d++) {
-    const date = addDays(monday, d);
-    const dateStr = format(date, 'yyyy-MM-dd');
-    const isFuture = dateStr > today;
-    const completed = completedDates.has(dateStr);
+    const dateStr = format(addDays(monday, d), 'yyyy-MM-dd');
     const frozen = frozenDates.has(dateStr);
     const due = wasHabitDueOnDate(habit, dateStr, firstCompletion);
 
-    if (isFuture) {
+    const completed = completedDates.has(dateStr);
+
+    if (habit.deletedDate !== null && dateStr >= habit.deletedDate && !completed) {
+      states.push('off');
+    } else if (dateStr > today) {
       states.push('future');
     } else if (completed) {
       states.push('done');
@@ -170,22 +147,64 @@ export const getWeeklyData = async (
   weekStartMonday: string,
   timezoneOffset: number = 180
 ): Promise<{ text: string; rows: HabitWeekRow[] }> => {
+  // Удалённые — только если удалены не раньше этой недели; строка остаётся,
+  // если в неделе есть её история (отметка, пропуск или заморозка).
   const habits = await prisma.habit.findMany({
-    where: { userId, isActive: true },
+    where: {
+      userId,
+      OR: [{ isActive: true }, { isActive: false, deletedDate: { gte: weekStartMonday } }],
+    },
     orderBy: { createdAt: 'asc' },
   });
 
+  const today = getTodayDate(timezoneOffset);
+  const weekEnd = format(addDays(parse(weekStartMonday, 'yyyy-MM-dd', new Date()), 6), 'yyyy-MM-dd');
+  const habitIds = habits.map((h) => h.id);
+  const [weekLogs, firstCompletions, freezeUsages] = await Promise.all([
+    prisma.habitLog.findMany({
+      where: { habitId: { in: habitIds }, completed: true, date: { gte: weekStartMonday, lte: weekEnd } },
+      select: { habitId: true, date: true },
+    }),
+    prisma.habitLog.groupBy({
+      by: ['habitId'],
+      where: { habitId: { in: habitIds }, completed: true },
+      _min: { date: true },
+    }),
+    prisma.freezeUsage.findMany({
+      where: { userId, date: { gte: weekStartMonday, lte: weekEnd } },
+      select: { date: true },
+    }),
+  ]);
+  const frozenDates = new Set(freezeUsages.map((f) => f.date));
+  const firstCompletionById = new Map(firstCompletions.map((f) => [f.habitId, f._min.date]));
+
   const rows: HabitWeekRow[] = [];
+  const deletedRows: HabitWeekRow[] = [];
   for (const habit of habits) {
-    const states = await getWeekStatesForHabit(habit.id, weekStartMonday, timezoneOffset);
-    rows.push({
+    const completedDates = new Set(weekLogs.filter((l) => l.habitId === habit.id).map((l) => l.date));
+    const states = computeWeekStates(
+      habit,
+      weekStartMonday,
+      today,
+      completedDates,
+      frozenDates,
+      firstCompletionById.get(habit.id) ?? null
+    );
+    const row: HabitWeekRow = {
       habitId: habit.id,
       name: habit.name,
       emoji: habit.emoji,
       scheduleLabel: getScheduleLabel(habit),
+      deleted: !habit.isActive,
       states,
-    });
+    };
+    if (habit.isActive) {
+      rows.push(row);
+    } else if (states.some((s) => s === 'done' || s === 'missed' || s === 'frozen')) {
+      deletedRows.push(row);
+    }
   }
+  rows.push(...deletedRows);
 
   const monday = parse(weekStartMonday, 'yyyy-MM-dd', new Date());
   const sunday = addDays(monday, 6);
@@ -215,7 +234,8 @@ export const getWeeklyData = async (
             return '⚪';
         }
       });
-      text += `${row.emoji} ${escapeMarkdown(row.name)} (${row.scheduleLabel})\n`;
+      const label = row.deleted ? 'удалена' : row.scheduleLabel;
+      text += `${row.emoji} ${escapeMarkdown(row.name)} (${label})\n`;
       text += '`' + symbols.join('') + '`\n\n';
     }
   }
