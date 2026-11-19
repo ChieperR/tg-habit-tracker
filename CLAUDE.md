@@ -19,7 +19,7 @@ Users can create habits with flexible schedules (daily / every N days / specific
 
 Чек-лист «что уже есть» — чтобы не предлагать переделать существующее.
 
-- **Привычки**: создание (wizard с эмодзи, расписанием), переименование и смена эмодзи в деталях привычки, мягкое удаление (`isActive=false`)
+- **Привычки**: создание (wizard с эмодзи, расписанием), переименование и смена эмодзи в деталях привычки, завершение как внедрённой (`graduated`), мягкое удаление (`isActive=false`)
 - **Расписание привычки**: daily / interval (раз в N дней) / weekdays (конкретные дни недели)
 - **Отметка выполнения**: inline-кнопка `✅` в `/habits`, в evening reminder (чеклист), в per-habit reminder, через weekly calendar
 - **Backdating отметок до 7 дней** (PR #4) — юзер может отметить за прошлый день через weekly calendar
@@ -123,7 +123,8 @@ prisma/
 - `lastSentDate: String?` — `YYYY-MM-DD`, dedup per time
 - Max `MAX_HABIT_REMINDERS` (5) per habit, `services/reminder/habitReminderSlots.ts`
 - `isActive: Boolean` — soft delete pattern
-- `deletedDate: String?` — `YYYY-MM-DD` в TZ юзера, день удаления. До этого дня удалённая привычка считается в стриках, пропусках, заморозках и недельном календаре как обычная (`habitExistsOn` в `streak/calculator.ts`), с этого дня — нет. Отметки удалённых привычек засчитываются всегда
+- `graduated: Boolean` — привычка внедрена: `isActive=false`, `deletedDate` = день завершения, дальше считается как удалённая, но в /stats идёт разделом «Внедрённые», в календаре подпись «внедрена»
+- `deletedDate: String?` — `YYYY-MM-DD` в TZ юзера, день удаления или внедрения. До этого дня удалённая привычка считается в стриках, пропусках, заморозках и недельном календаре как обычная (`habitExistsOn` в `streak/calculator.ts`), с этого дня — нет. Отметки удалённых привычек засчитываются всегда
 
 ### `HabitLog`
 - `date: String` — `YYYY-MM-DD`
@@ -253,7 +254,8 @@ Model fields in schema: use `///` triple-slash comments (Prisma convention)
 | `habit_toggle` | Mark habit done/undone for today |
 | `habit_add` | Start add-habit conversation |
 | `habit_delete` / `habit_confirm_delete` | Two-step delete |
-| `habit_details` | Habit detail view (reminder + delete) |
+| `habit_details` | Habit detail view (reminders, name/emoji, graduate, delete) |
+| `habit_graduate` / `habit_confirm_graduate` | Two-step «привычка внедрена» |
 | `habit_reminders` | Habit reminders screen (`h:rem`; old `h:rrem` buttons open it too) |
 | `habit_reminder_set` | Add reminder time(s) conversation |
 | `habit_reminder_change` / `habit_reminder_delete` | Change / remove one reminder time |

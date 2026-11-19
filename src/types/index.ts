@@ -88,6 +88,22 @@ export type HabitStats = {
 };
 
 /**
+ * Итог внедрённой привычки для /stats и поздравления
+ */
+export type GraduatedHabitStats = {
+  name: string;
+  emoji: string;
+  /** День завершения (YYYY-MM-DD) */
+  graduatedDate: string;
+  /** Всего выполнений */
+  totalCompleted: number;
+  /** Лучшая серия за всю историю */
+  maxStreak: number;
+  /** Дней с начала привычки по день завершения включительно */
+  days: number;
+};
+
+/**
  * Общая статистика пользователя
  */
 export type UserStats = {
@@ -107,6 +123,8 @@ export type UserStats = {
   activityGraph: string;
   /** Статистика по каждой привычке */
   habitStats: HabitStats[];
+  /** Внедрённые привычки, по дню завершения */
+  graduatedHabits: GraduatedHabitStats[];
 };
 
 /**
@@ -137,6 +155,8 @@ export type CallbackAction =
   | { type: 'habit_toggle'; habitId: number; date?: string; source?: 'evening_reminder' | 'habit_reminder' | 'habit_reminder_undo' | 'habit_created' }
   | { type: 'habit_delete'; habitId: number }
   | { type: 'habit_confirm_delete'; habitId: number }
+  | { type: 'habit_graduate'; habitId: number }
+  | { type: 'habit_confirm_graduate'; habitId: number }
   | { type: 'habit_details'; habitId: number }
   | { type: 'habit_rename'; habitId: number }
   | { type: 'habit_emoji'; habitId: number }

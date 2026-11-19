@@ -3,7 +3,7 @@ import type { BotContext } from '../../../types/index.js';
 import { handleHabitToggle } from './habitCallbacks.js';
 
 const state = vi.hoisted(() => ({
-  habit: null as null | { id: number; userId: number; isActive: boolean; deletedDate: string | null; name: string; emoji: string },
+  habit: null as null | { id: number; userId: number; isActive: boolean; deletedDate: string | null; graduated?: boolean; name: string; emoji: string },
   toggles: [] as unknown[][],
   answers: [] as string[],
   log: null as null | { completed: boolean },
@@ -19,6 +19,7 @@ vi.mock('../../../services/habitService.js', () => ({
     return true;
   },
   deleteHabit: async () => true,
+  graduateHabit: async () => true,
   getUserHabitsWithTodayStatus: async () => [],
   getUserHabitsWithDateStatus: async () => [],
   getHabitReminders: async () => [],
@@ -77,6 +78,13 @@ describe('handleHabitToggle: удалённая привычка', () => {
     await handleHabitToggle(ctx, 6, 'habit_reminder_undo');
     expect(state.toggles).toEqual([[6, 180, '2026-01-10']]);
     state.log = null;
+  });
+
+  it('внедрённая привычка из старого напоминания — не переключается, ответ про внедрение', async () => {
+    state.habit = { id: 7, userId: 1, isActive: false, deletedDate: '2026-01-11', graduated: true, name: 'Бег', emoji: '🏃' };
+    await handleHabitToggle(ctx, 7, 'habit_reminder');
+    expect(state.toggles).toEqual([]);
+    expect(state.answers).toEqual(['🏆 Привычка внедрена']);
   });
 
   it('активная привычка из старого напоминания отмечается за день сообщения', async () => {

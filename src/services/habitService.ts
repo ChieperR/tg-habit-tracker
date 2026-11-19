@@ -76,6 +76,25 @@ export const deleteHabit = async (
 };
 
 /**
+ * Завершает привычку как внедрённую: она уходит из списка, напоминаний и
+ * чеклистов, а история считается как у удалённой (до дня завершения —
+ * обычная привычка, см. habitExistsOn). Фильтр по userId + isActive —
+ * owner-check и защита от повторного нажатия.
+ * @returns true, если привычка была активной и теперь завершена
+ */
+export const graduateHabit = async (
+  habitId: number,
+  userId: number,
+  timezoneOffset: number = DEFAULT_TIMEZONE_OFFSET
+): Promise<boolean> => {
+  const { count } = await prisma.habit.updateMany({
+    where: { id: habitId, userId, isActive: true },
+    data: { isActive: false, deletedDate: getTodayDate(timezoneOffset), graduated: true },
+  });
+  return count > 0;
+};
+
+/**
  * Получает лог выполнения привычки за определённую дату
  * @param habitId - ID привычки
  * @param date - Дата в формате YYYY-MM-DD

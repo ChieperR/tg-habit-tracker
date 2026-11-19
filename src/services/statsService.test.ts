@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { computeCompletionRate, renderActivityGraph, getUserStats, formatStatsMessage } from './statsService.js';
+import { computeCompletionRate, renderActivityGraph, getUserStats, formatStatsMessage, computeGraduatedStats } from './statsService.js';
 
 type MockHabit = {
   id: number;
@@ -12,6 +12,7 @@ type MockHabit = {
   createdAt: Date;
   isActive: boolean;
   deletedDate: string | null;
+  graduated?: boolean;
 };
 type MockLog = { habitId: number; date: string; completed: boolean };
 
@@ -153,3 +154,37 @@ describe('getUserStats: удалённые привычки', () => {
   });
 });
 
+
+describe('внедрённая привычка', () => {
+  const habit = {
+    id: 9, userId: 1, name: 'Бег', emoji: '🏃', frequencyType: 'daily', frequencyDays: 1, weekdays: null,
+    createdAt: new Date('2026-01-01T10:00:00Z'), isActive: false, deletedDate: '2026-01-12', graduated: true,
+  };
+  // 1–10 января, кроме 5-го.
+  const logs = Array.from({ length: 10 }, (_, i) => i + 1)
+    .filter((d) => d !== 5)
+    .map((d) => ({ habitId: 9, date: `2026-01-${String(d).padStart(2, '0')}`, completed: true }));
+
+  it('итог: выполнения, лучшая серия до дня завершения, дни в списке', () => {
+    expect(computeGraduatedStats(habit, logs, [])).toEqual({
+      name: 'Бег', emoji: '🏃', graduatedDate: '2026-01-12', totalCompleted: 9, maxStreak: 5, days: 12,
+    });
+  });
+
+  it('заморозка в день завершения не удлиняет рекорд', () => {
+    const lastFive = logs.filter((l) => l.date >= '2026-01-06');
+    // 6–10 января подряд, 11-е заморожено, 12-го — завершение без отметки.
+    expect(computeGraduatedStats({ ...habit, deletedDate: '2026-01-12' }, lastFive, [{ date: '2026-01-12' }]).maxStreak).toBe(5);
+  });
+
+  it('/stats показывает её в разделе «Внедрённые», не среди активных', async () => {
+    db.habits = [habit];
+    db.logs = logs;
+    const stats = await getUserStats(1, 180);
+    expect(stats.activeHabits).toBe(0);
+    expect(stats.habitStats).toEqual([]);
+    const text = formatStatsMessage(stats);
+    expect(text).toContain('🏆 *Внедрённые*');
+    expect(text).toContain('🏃 *Бег* — внедрена 12.01.2026, выполнений: 9, рекорд: 5 дн.');
+  });
+});
