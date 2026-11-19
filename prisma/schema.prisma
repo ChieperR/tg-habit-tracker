@@ -175,9 +175,10 @@ model Habit {
   frequencyDays         Int      @default(1)
   /// Дни недели через запятую: "1,2,3" где 0=Вс, 1=Пн, ..., 6=Сб (для frequencyType = "weekdays")
   weekdays              String?
-  /// Время персонального напоминания (формат HH:MM в часовом поясе пользователя), null = нет
+  /// Не используется: персональные напоминания хранятся в HabitReminder.
+  /// Колонка остаётся до отдельной чистки схемы
   reminderTime          String?
-  /// Дата последнего персонального напоминания (YYYY-MM-DD), для дедупликации
+  /// Не используется: дедупликация — HabitReminder.lastSentDate
   lastHabitReminderDate String?
   /// Активна ли привычка
   isActive              Boolean  @default(true)
@@ -192,7 +193,27 @@ model Habit {
   userId Int
 
   /// Логи выполнения
-  logs HabitLog[]
+  logs      HabitLog[]
+  /// Персональные напоминания (по одному на время дня)
+  reminders HabitReminder[]
+}
+
+/// Персональное напоминание привычки на одно время дня. У привычки их может быть несколько
+model HabitReminder {
+  id           Int      @id @default(autoincrement())
+  /// Время (HH:MM в часовом поясе пользователя)
+  time         String
+  /// День последней отправки по этому времени (YYYY-MM-DD в поясе пользователя), для дедупликации
+  lastSentDate String?
+  /// Когда добавлено
+  createdAt    DateTime @default(now())
+
+  /// Привычка
+  habit   Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
+  habitId Int
+
+  /// Одно время у привычки — одно напоминание
+  @@unique([habitId, time])
 }
 
 /// Лог выполнения привычки

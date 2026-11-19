@@ -16,6 +16,7 @@ import { trackEvent } from '../analyticsService.js';
 import { sendMorningReminder, sendEveningReminder } from './senders.js';
 import { handleDeliveryError } from './delivery.js';
 import { buildPerHabitReminder } from './textBuilder.js';
+import { pickPendingSlots } from './habitReminderSlots.js';
 import { shouldAutoApplyFreeze, type StreakHabit, type StreakHabitLog, type StreakFreezeUsage } from '../streak/calculator.js';
 import { autoSpendFreeze } from '../streak/freezeService.js';
 
@@ -77,7 +78,9 @@ export const checkAndSendReminders = async (
 
 /**
  * Проверяет и отправляет персональные напоминания привычек.
- * Для каждой привычки с reminderTime: проверяет due today, не выполнена, время подошло.
+ * У привычки может быть несколько времён: каждое срабатывает раз в день, если
+ * привычка сегодня по расписанию и ещё не отмечена. Если наступило сразу
+ * несколько времён (бот лежал), уходит одно сообщение, все они помечаются.
  */
 export const checkAndSendHabitReminders = async (
   bot: Bot<BotContext>
@@ -87,12 +90,12 @@ export const checkAndSendHabitReminders = async (
   for (const habit of habits) {
     const timezoneOffset = habit.user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET;
     const todayDate = getTodayDate(timezoneOffset);
-
-    if (habit.lastHabitReminderDate === todayDate) {
-      continue;
-    }
-
-    if (!habit.reminderTime) continue;
+    const pending = pickPendingSlots(
+      habit.reminders,
+      getCurrentMinutesInTimezone(timezoneOffset),
+      todayDate
+    );
+    if (pending.length === 0) continue;
 
     const lastCompletedLog = await prisma.habitLog.findFirst({
       where: { habitId: habit.id, completed: true },
@@ -112,13 +115,11 @@ export const checkAndSendHabitReminders = async (
     const todayLog = await getHabitLog(habit.id, todayDate);
     if (todayLog?.completed) continue;
 
-    const { hours: targetHours, minutes: targetMinutes } = parseTime(habit.reminderTime);
-
-    const currentTimeInMinutes = getCurrentMinutesInTimezone(timezoneOffset);
-    const targetTimeInMinutes = targetHours * 60 + targetMinutes;
-
-    if (currentTimeInMinutes >= targetTimeInMinutes) {
-      const message = await buildPerHabitReminder(habit.userId, timezoneOffset, {
+    const slotTime = pending[pending.length - 1]!.time;
+    const message = await buildPerHabitReminder(
+      habit.userId,
+      timezoneOffset,
+      {
         id: habit.id,
         name: habit.name,
         emoji: habit.emoji,
@@ -128,28 +129,29 @@ export const checkAndSendHabitReminders = async (
         createdAt: habit.createdAt,
         isActive: habit.isActive,
         deletedDate: habit.deletedDate,
-      });
-      const keyboard = new InlineKeyboard()
-        .text('✅ Выполнено', serializeCallback({ type: 'habit_toggle', habitId: habit.id, source: 'habit_reminder' }));
+      },
+      habit.reminders.length > 1 ? slotTime : undefined
+    );
+    const keyboard = new InlineKeyboard()
+      .text('✅ Выполнено', serializeCallback({ type: 'habit_toggle', habitId: habit.id, source: 'habit_reminder' }));
 
-      try {
-        await bot.api.sendMessage(habit.user.telegramId.toString(), message, {
-          parse_mode: 'Markdown',
-          reply_markup: keyboard,
-        });
-        void trackEvent(habit.userId, 'reminder_sent', { type: 'habit', habitId: habit.id });
-      } catch (error) {
-        const handled = handleDeliveryError(error, habit.user.telegramId, habit.userId);
-        if (!handled) {
-          console.error(`[reminder] Ошибка напоминания привычки ${habit.id} для ${habit.user.telegramId}:`, error);
-        }
+    try {
+      await bot.api.sendMessage(habit.user.telegramId.toString(), message, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+      void trackEvent(habit.userId, 'reminder_sent', { type: 'habit', habitId: habit.id, time: slotTime });
+    } catch (error) {
+      const handled = handleDeliveryError(error, habit.user.telegramId, habit.userId);
+      if (!handled) {
+        console.error(`[reminder] Ошибка напоминания привычки ${habit.id} для ${habit.user.telegramId}:`, error);
       }
-
-      await prisma.habit.update({
-        where: { id: habit.id },
-        data: { lastHabitReminderDate: todayDate },
-      });
     }
+
+    await prisma.habitReminder.updateMany({
+      where: { id: { in: pending.map((r) => r.id) } },
+      data: { lastSentDate: todayDate },
+    });
   }
 };
 

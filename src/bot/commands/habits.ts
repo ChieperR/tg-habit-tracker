@@ -34,7 +34,7 @@ const buildHabitsMessage = (
     for (const habit of habits) {
       const status = habit.completedToday ? '✅' : '⬜';
       const dueIndicator = habit.isDueToday ? '' : ' 💤';
-      const reminderIndicator = habit.reminderTime ? `  ⏰ ${habit.reminderTime}` : '';
+      const reminderIndicator = habit.reminderTimes.length > 0 ? `  ⏰ ${habit.reminderTimes.join(', ')}` : '';
       message += `${status} ${habit.emoji} ${escapeMarkdown(habit.name)}${dueIndicator}${reminderIndicator}\n`;
     }
     message += '\n';

@@ -1,6 +1,6 @@
 import { BotContext, BotConversation } from '../../types/index.js';
 import { parseCallback } from '../../utils/callback.js';
-import { changeHabitEmoji, getHabitById } from '../../services/habitService.js';
+import { changeHabitEmoji, getHabitById, getHabitReminders } from '../../services/habitService.js';
 import { findOrCreateUser } from '../../services/userService.js';
 import { createEmojiKeyboard, createHabitDetailsKeyboard, createMainMenuKeyboard } from '../keyboards/index.js';
 import { escapeMarkdown } from '../../utils/telegram.js';
@@ -90,16 +90,14 @@ export const changeHabitEmojiConversation = async (
     return;
   }
 
-  // Перечитываем — имя и напоминание могли измениться, пока юзер выбирал.
+  // Перечитываем — имя и напоминания могли измениться, пока юзер выбирал.
   const fresh = await conversation.external(() => getHabitById(habitId));
+  const reminders = await conversation.external(() => getHabitReminders(habitId));
   await ctx.reply(
     `✅ Новый эмодзи: *${escapeMarkdown(`${emoji} ${fresh?.name ?? habit.name}`)}*`,
     {
       parse_mode: 'Markdown',
-      reply_markup: createHabitDetailsKeyboard({
-        habitId,
-        reminderTime: fresh?.reminderTime ?? null,
-      }),
+      reply_markup: createHabitDetailsKeyboard({ habitId, reminderCount: reminders.length }),
     }
   );
 };

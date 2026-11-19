@@ -34,10 +34,14 @@ export const serializeCallback = (action: CallbackAction): string => {
       return `h:ren:${action.habitId}`;
     case 'habit_emoji':
       return `h:emo:${action.habitId}`;
+    case 'habit_reminders':
+      return `h:rem:${action.habitId}`;
     case 'habit_reminder_set':
       return `h:rset:${action.habitId}`;
-    case 'habit_reminder_remove':
-      return `h:rrem:${action.habitId}`;
+    case 'habit_reminder_change':
+      return `h:rch:${action.reminderId}`;
+    case 'habit_reminder_delete':
+      return `h:rdl:${action.reminderId}`;
     case 'stats':
       return 's:main';
     case 'weekly_show':
@@ -139,10 +143,23 @@ export const parseCallback = (data: string): CallbackAction | null => {
           if (isNaN(habitId)) return null;
           return { type: 'habit_reminder_set', habitId };
         }
+        case 'rem':
+        // `rrem` — «Убрать напоминание» из сообщений, когда напоминание было одно:
+        // теперь открывает список напоминаний привычки.
         case 'rrem': {
           const habitId = parseInt(parts[2] ?? '', 10);
           if (isNaN(habitId)) return null;
-          return { type: 'habit_reminder_remove', habitId };
+          return { type: 'habit_reminders', habitId };
+        }
+        case 'rch': {
+          const reminderId = parseInt(parts[2] ?? '', 10);
+          if (isNaN(reminderId)) return null;
+          return { type: 'habit_reminder_change', reminderId };
+        }
+        case 'rdl': {
+          const reminderId = parseInt(parts[2] ?? '', 10);
+          if (isNaN(reminderId)) return null;
+          return { type: 'habit_reminder_delete', reminderId };
         }
       }
       break;

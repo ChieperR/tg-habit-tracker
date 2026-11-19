@@ -12,4 +12,5 @@ export {
   setEveningTimeConversation,
   setTimezoneConversation,
   setHabitReminderConversation,
+  changeHabitReminderConversation,
 } from './settings.js';

@@ -20,7 +20,8 @@ vi.mock('../../../services/habitService.js', () => ({
   deleteHabit: async () => true,
   getUserHabitsWithTodayStatus: async () => [],
   getUserHabitsWithDateStatus: async () => [],
-  updateHabitReminder: async () => undefined,
+  getHabitReminders: async () => [],
+  removeHabitReminder: async () => null,
 }));
 vi.mock('../../../utils/telegram.js', () => ({
   safeAnswerCallback: async (_ctx: unknown, text: string) => {

@@ -108,7 +108,7 @@ const main = async (): Promise<void> => {
   const [users, habits, habitLogs, analyticsEvents, achievementEvents, freezeUsages, dailySnapshots] =
     await Promise.all([
       prisma.user.findMany(),
-      prisma.habit.findMany(),
+      prisma.habit.findMany({ include: { reminders: { orderBy: { time: 'asc' } } } }),
       prisma.habitLog.findMany(),
       prisma.analyticsEvent.findMany(),
       prisma.achievementEvent.findMany(),
@@ -144,8 +144,12 @@ const main = async (): Promise<void> => {
     frequencyType: h.frequencyType,
     frequencyDays: h.frequencyDays,
     weekdays: h.weekdays,
-    reminderTime: h.reminderTime,
-    lastHabitReminderDate: h.lastHabitReminderDate,
+    reminderTime: h.reminders[0]?.time ?? null,
+    reminderTimes: h.reminders.map((r) => r.time),
+    lastHabitReminderDate: h.reminders.reduce<string | null>(
+      (max, r) => (r.lastSentDate && (!max || r.lastSentDate > max) ? r.lastSentDate : max),
+      null
+    ),
     isActive: h.isActive,
     createdAt: iso(h.createdAt),
   }));

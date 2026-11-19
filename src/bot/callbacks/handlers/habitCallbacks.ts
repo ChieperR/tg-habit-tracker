@@ -3,10 +3,11 @@ import { BotContext } from '../../../types/index.js';
 import { serializeCallback } from '../../../utils/callback.js';
 import { safeEditMessage, safeAnswerCallback } from '../../../utils/telegram.js';
 import { findOrCreateUser } from '../../../services/userService.js';
-import { toggleHabitCompletion, deleteHabit, getHabitById, getUserHabitsWithTodayStatus, getUserHabitsWithDateStatus, updateHabitReminder } from '../../../services/habitService.js';
+import { toggleHabitCompletion, deleteHabit, getHabitById, getUserHabitsWithTodayStatus, getUserHabitsWithDateStatus, getHabitReminders, removeHabitReminder } from '../../../services/habitService.js';
+import { buildHabitDetailsView, buildHabitRemindersView } from '../../views/habitViews.js';
 import { trackEvent } from '../../../services/analyticsService.js';
 import { showHabitsList } from '../../commands/habits.js';
-import { createEveningChecklistKeyboard, createDeleteConfirmKeyboard, createHabitDetailsKeyboard, createHabitCreatedKeyboard } from '../../keyboards/index.js';
+import { createEveningChecklistKeyboard, createDeleteConfirmKeyboard, createHabitCreatedKeyboard } from '../../keyboards/index.js';
 import { formatScheduleText } from '../../../utils/format.js';
 import { escapeMarkdown } from '../../../utils/telegram.js';
 import { prisma } from '../../../db/index.js';
@@ -310,65 +311,66 @@ export const handleHabitDetails = async (ctx: BotContext, habitId: number): Prom
   const user = await findOrCreateUser(telegramId);
   const habit = await getHabitById(habitId);
 
-  if (!habit || habit.userId !== user.id) {
+  if (!habit || habit.userId !== user.id || !habit.isActive) {
     await ctx.answerCallbackQuery('❌ Привычка не найдена');
     return;
   }
 
   await ctx.answerCallbackQuery();
-
-  const schedule = formatScheduleText(habit);
-  const reminderLine = habit.reminderTime
-    ? `⏰ Напоминание: *${habit.reminderTime}*`
-    : '⏰ Напоминание: _не установлено_';
-
-  const message = `
-⚙️ *${habit.emoji} ${escapeMarkdown(habit.name)}*
-
-📅 Расписание: _${schedule}_
-${reminderLine}
-  `.trim();
-
-  await safeEditMessage(ctx, message, {
-    parse_mode: 'Markdown',
-    reply_markup: createHabitDetailsKeyboard({
-      habitId: habit.id,
-      reminderTime: habit.reminderTime,
-    }),
-  });
+  const reminders = await getHabitReminders(habitId);
+  const view = buildHabitDetailsView(habit, reminders.map((r) => r.time));
+  await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', reply_markup: view.keyboard });
 };
 
 /**
- * Удаляет напоминание привычки
+ * Перерисовывает сообщение экраном напоминаний привычки, а если их не
+ * осталось — экраном деталей.
  */
-export const handleHabitReminderRemove = async (ctx: BotContext, habitId: number): Promise<void> => {
+const renderHabitReminders = async (
+  ctx: BotContext,
+  habit: Parameters<typeof buildHabitDetailsView>[0]
+): Promise<void> => {
+  const reminders = await getHabitReminders(habit.id);
+  const view = reminders.length > 0
+    ? buildHabitRemindersView(habit, reminders)
+    : buildHabitDetailsView(habit, []);
+  await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', reply_markup: view.keyboard });
+};
+
+/**
+ * Показывает список напоминаний привычки
+ */
+export const handleHabitReminders = async (ctx: BotContext, habitId: number): Promise<void> => {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
 
   const user = await findOrCreateUser(telegramId);
   const habit = await getHabitById(habitId);
 
-  if (!habit || habit.userId !== user.id) {
-    await ctx.answerCallbackQuery('❌ Привычка не найдена');
+  if (!habit || habit.userId !== user.id || !habit.isActive) {
+    await safeAnswerCallback(ctx, '❌ Привычка не найдена');
     return;
   }
 
-  await updateHabitReminder(habitId, null);
-  await ctx.answerCallbackQuery('🔕 Напоминание удалено');
+  await safeAnswerCallback(ctx);
+  await renderHabitReminders(ctx, habit);
+};
 
-  const schedule = formatScheduleText(habit);
-  const message = `
-⚙️ *${habit.emoji} ${escapeMarkdown(habit.name)}*
+/**
+ * Убирает одно напоминание привычки и перерисовывает список
+ */
+export const handleHabitReminderDelete = async (ctx: BotContext, reminderId: number): Promise<void> => {
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
 
-📅 Расписание: _${schedule}_
-⏰ Напоминание: _не установлено_
-  `.trim();
+  const user = await findOrCreateUser(telegramId);
+  const habitId = await removeHabitReminder(reminderId, user.id);
+  if (habitId === null) {
+    await safeAnswerCallback(ctx, '❌ Напоминание не найдено');
+    return;
+  }
 
-  await safeEditMessage(ctx, message, {
-    parse_mode: 'Markdown',
-    reply_markup: createHabitDetailsKeyboard({
-      habitId: habit.id,
-      reminderTime: null,
-    }),
-  });
+  await safeAnswerCallback(ctx, '🔕 Напоминание убрано');
+  const habit = await getHabitById(habitId);
+  if (habit) await renderHabitReminders(ctx, habit);
 };

@@ -92,7 +92,7 @@ export const getBotStats = async (): Promise<BotStats> => {
   });
 
   const habitsWithReminder = await prisma.habit.count({
-    where: { isActive: true, reminderTime: { not: null } },
+    where: { isActive: true, reminders: { some: {} } },
   });
 
   // --- Выполнения сегодня ---
@@ -102,7 +102,7 @@ export const getBotStats = async (): Promise<BotStats> => {
 
   // --- Напоминания отправлены сегодня ---
   const habitRemindersToday = await prisma.habit.count({
-    where: { lastHabitReminderDate: today },
+    where: { reminders: { some: { lastSentDate: today } } },
   });
   const morningRemindersToday = await prisma.user.count({
     where: { lastMorningReminderDate: today },

@@ -28,7 +28,7 @@ Users can create habits with flexible schedules (daily / every N days / specific
   - **Morning reminder**: обзор «вот привычки на сегодня», под ним меню (Мои привычки / Стата / Настройки) — **НЕ для отметки**, это просто список
   - **Evening reminder**: checklist с inline-кнопками для каждой привычки — для отметки выполнения
   - **Per-habit reminder**: «⏰ Пришло время X» с одной кнопкой `✅` — для конкретной привычки в её час
-- **Кастомное время per-habit reminder**: каждая привычка может иметь свой час срабатывания
+- **Персональные напоминания привычки**: до 5 времён в день (`HabitReminder`), экран «⏰ Изменить напоминания» в деталях привычки
 - **Глобальное время morning/evening**: конфигурируется в `/settings`
 - **Timezone**: автоопределение по геолокации или ручной ввод
 - **Weekly calendar**: 7-дневная сетка с эмодзи (🟢 сделано / 🔴 пропущено / 🧊 заморожено через freeze / ⏸️ выходной / ⚪ ещё не наступило), листание по неделям
@@ -115,8 +115,13 @@ prisma/
 - `frequencyDays: Int` — only meaningful for `interval`
 - `weekdays: String?` — comma-separated JS `getDay()` values: `0=Sun, 1=Mon, ..., 6=Sat`  
   Example: `"1,3,5"` = Mon, Wed, Fri
-- `reminderTime: String?` — personal reminder time `HH:MM` in user's local timezone, `null` = no reminder
-- `lastHabitReminderDate: String?` — `YYYY-MM-DD`, dedup for habit-specific reminders
+- `reminders: HabitReminder[]` — personal reminders, one row per time of day
+- `reminderTime` / `lastHabitReminderDate` — не используются (данные перенесены в `HabitReminder`), колонки ждут чистки схемы
+
+### `HabitReminder`
+- `time: String` — `HH:MM` in user's local timezone, unique per habit (`[habitId, time]`)
+- `lastSentDate: String?` — `YYYY-MM-DD`, dedup per time
+- Max `MAX_HABIT_REMINDERS` (5) per habit, `services/reminder/habitReminderSlots.ts`
 - `isActive: Boolean` — soft delete pattern
 - `deletedDate: String?` — `YYYY-MM-DD` в TZ юзера, день удаления. До этого дня удалённая привычка считается в стриках, пропусках, заморозках и недельном календаре как обычная (`habitExistsOn` в `streak/calculator.ts`), с этого дня — нет. Отметки удалённых привычек засчитываются всегда
 
@@ -172,11 +177,11 @@ const user = await conversation.external(() => findOrCreateUser(telegramId));
 4. Sends message and updates the date
 
 **Per-habit reminders** (`checkAndSendHabitReminders`):
-1. Finds all active habits with `reminderTime != null`
-2. Checks habit is due today and not yet completed
-3. Checks user's current time >= `reminderTime`
-4. Checks `lastHabitReminderDate` to avoid duplicates
-5. Sends "⏰ Пришло время: {emoji} {name}" with a ✅ toggle button
+1. Finds all active habits with at least one `HabitReminder`
+2. Picks times that already came today and have `lastSentDate != today` (`pickPendingSlots`)
+3. Checks habit is due today and not yet completed
+4. Sends one message (even if several times came at once, e.g. after downtime) with a ✅ toggle button
+5. Marks all picked times `lastSentDate = today`
 
 ---
 
@@ -249,8 +254,9 @@ Model fields in schema: use `///` triple-slash comments (Prisma convention)
 | `habit_add` | Start add-habit conversation |
 | `habit_delete` / `habit_confirm_delete` | Two-step delete |
 | `habit_details` | Habit detail view (reminder + delete) |
-| `habit_reminder_set` | Start set-reminder conversation |
-| `habit_reminder_remove` | Remove habit reminder |
+| `habit_reminders` | Habit reminders screen (`h:rem`; old `h:rrem` buttons open it too) |
+| `habit_reminder_set` | Add reminder time(s) conversation |
+| `habit_reminder_change` / `habit_reminder_delete` | Change / remove one reminder time |
 | `weekly_show` / `weekly_prev` / `weekly_next` | Weekly calendar navigation |
 | `stats` | Refresh stats view |
 | `settings_morning` / `settings_evening` | Set reminder time |

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateHabitName, parseHabitEmoji, MAX_HABIT_NAME_LENGTH } from './validation.js';
+import { validateHabitName, parseHabitEmoji, parseReminderTimes, MAX_HABIT_NAME_LENGTH } from './validation.js';
 
 describe('validateHabitName', () => {
   it('обрезает пробелы и принимает нормальное имя', () => {
@@ -48,5 +48,21 @@ describe('parseHabitEmoji', () => {
     for (const s of ['бег', 'a', '5', '🏃 бег', '🏃a', '', '   ']) {
       expect(parseHabitEmoji(s)).toBeNull();
     }
+  });
+});
+
+describe('parseReminderTimes', () => {
+  it('одно время, нормализует часы', () => {
+    expect(parseReminderTimes(' 9:00 ')).toEqual({ times: ['09:00'] });
+  });
+
+  it('несколько через запятую и пробелы, сортирует и убирает повторы', () => {
+    expect(parseReminderTimes('20:30, 9:00 14:00;09:00')).toEqual({ times: ['09:00', '14:00', '20:30'] });
+  });
+
+  it('ошибка на неверном времени и на пустом вводе', () => {
+    expect(parseReminderTimes('9:00, 25:00')).toHaveProperty('error');
+    expect(parseReminderTimes('завтра')).toHaveProperty('error');
+    expect(parseReminderTimes('  ')).toHaveProperty('error');
   });
 });
