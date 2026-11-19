@@ -62,6 +62,12 @@ export const handleHabitToggle = async (
     }
   }
   const targetDate = effectiveDate ?? todayDate;
+  // Кнопки старых сообщений: удалённую привычку можно отметить только за дни,
+  // когда она ещё была в списке.
+  if (!habit.isActive && (habit.deletedDate === null || targetDate >= habit.deletedDate)) {
+    await safeAnswerCallback(ctx, '🗑 Привычка удалена');
+    return;
+  }
   const newStatus = await toggleHabitCompletion(habitId, timezoneOffset, effectiveDate);
   const statusText = newStatus ? '✅ Выполнено!' : '⬜ Отменено';
 
@@ -288,8 +294,8 @@ export const handleHabitConfirmDelete = async (ctx: BotContext, habitId: number)
     return;
   }
 
-  await deleteHabit(habitId, user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET);
-  void trackEvent(user.id, 'habit_delete', { habitId });
+  const deleted = await deleteHabit(habitId, user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET);
+  if (deleted) void trackEvent(user.id, 'habit_delete', { habitId });
   await ctx.answerCallbackQuery('🗑 Привычка удалена');
   await showHabitsList(ctx);
 };

@@ -169,8 +169,15 @@ export const autoApplyFreezesForMissedDays = async (): Promise<void> => {
   // lastFreezeEarnStreakDay для юзеров, у которых стрик сломался (даже без
   // freeze в инвентаре) — иначе после восстановления через backdating новый
   // цикл из 5 дней не даст freeze (см. ревью пункт A).
+  // Плюс юзеры, удалившие привычку за последние дни: вчера она ещё была в
+  // списке, и пропуск по ней покрывается заморозкой как обычный.
+  const recentDeletionFrom = getPrevDate(getPrevDate(getTodayDate(0)));
   const users = await prisma.user.findMany({
-    where: { habits: { some: { isActive: true } } },
+    where: {
+      habits: {
+        some: { OR: [{ isActive: true }, { deletedDate: { gte: recentDeletionFrom } }] },
+      },
+    },
     select: {
       id: true,
       timezoneOffset: true,

@@ -62,15 +62,17 @@ export const getHabitById = async (habitId: number): Promise<Habit | null> => {
  * в часовом поясе юзера. Повторное удаление уже удалённой ничего не меняет.
  * @param habitId - ID привычки
  * @param timezoneOffset - Смещение часового пояса юзера в минутах
+ * @returns true, если привычка была активной и теперь удалена
  */
 export const deleteHabit = async (
   habitId: number,
   timezoneOffset: number = DEFAULT_TIMEZONE_OFFSET
-): Promise<void> => {
-  await prisma.habit.updateMany({
+): Promise<boolean> => {
+  const { count } = await prisma.habit.updateMany({
     where: { id: habitId, isActive: true },
     data: { isActive: false, deletedDate: getTodayDate(timezoneOffset) },
   });
+  return count > 0;
 };
 
 /**

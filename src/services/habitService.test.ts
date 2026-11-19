@@ -26,7 +26,7 @@ describe('deleteHabit', () => {
   });
 
   it('пишет день удаления в часовом поясе юзера и не трогает уже удалённую', async () => {
-    await deleteHabit(7, 180);
+    expect(await deleteHabit(7, 180)).toBe(true);
     expect(calls.updateMany).toEqual([
       { where: { id: 7, isActive: true }, data: { isActive: false, deletedDate: '2026-01-15' } },
     ]);

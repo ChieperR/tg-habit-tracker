@@ -34,17 +34,17 @@ vi.mock('../db/index.js', () => ({
   prisma: {
     habit: {
       findMany: async ({ where }: { where: HabitWhere }) => db.habits.filter((h) => matchesWhere(h, where)),
-      findUnique: async ({ where }: { where: { id: number } }) => db.habits.find((h) => h.id === where.id) ?? null,
     },
     habitLog: {
-      findFirst: async ({ where }: { where: { habitId: number } }) => {
-        const dates = db.logs.filter((l) => l.habitId === where.habitId && l.completed).map((l) => l.date).sort();
-        return dates.length > 0 ? { date: dates[0] } : null;
-      },
-      findMany: async ({ where }: { where: { habitId: number; date: { gte: string; lte: string } } }) =>
-        db.logs
-          .filter((l) => l.habitId === where.habitId && l.completed && l.date >= where.date.gte && l.date <= where.date.lte)
-          .map((l) => ({ date: l.date })),
+      findMany: async ({ where }: { where: { habitId: { in: number[] }; date: { gte: string; lte: string } } }) =>
+        db.logs.filter(
+          (l) => where.habitId.in.includes(l.habitId) && l.completed && l.date >= where.date.gte && l.date <= where.date.lte
+        ),
+      groupBy: async ({ where }: { where: { habitId: { in: number[] } } }) =>
+        where.habitId.in.map((habitId) => {
+          const dates = db.logs.filter((l) => l.habitId === habitId && l.completed).map((l) => l.date).sort();
+          return { habitId, _min: { date: dates[0] ?? null } };
+        }),
     },
     freezeUsage: { findMany: async () => [] },
   },
@@ -116,6 +116,11 @@ describe('computeWeekStates: удалённая привычка', () => {
     // неделя 05.01–11.01, удалена в четверг 08.01, в среду и в день удаления отмечена
     const states = computeWeekStates(habit, '2026-01-05', '2026-01-20', new Set(['2026-01-07', '2026-01-08']), new Set(), '2026-01-01');
     expect(states).toEqual(['missed', 'missed', 'done', 'done', 'off', 'off', 'off']);
+  });
+
+  it('текущая неделя: дни с дня удаления — ⏸️, а не ⚪', () => {
+    const states = computeWeekStates(habit, '2026-01-05', '2026-01-08', new Set(['2026-01-07']), new Set(), '2026-01-01');
+    expect(states).toEqual(['missed', 'missed', 'done', 'off', 'off', 'off', 'off']);
   });
 
   it('у активной привычки дни не обрезаются', () => {

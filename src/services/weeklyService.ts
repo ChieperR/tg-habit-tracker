@@ -61,20 +61,6 @@ export const getScheduleLabel = (habit: {
 };
 
 /**
- * Возвращает дату первого выполнения привычки (YYYY-MM-DD) или null
- * @param habitId - ID привычки
- * @returns Дата первого выполнения или null
- */
-export const getFirstCompletionDate = async (habitId: number): Promise<string | null> => {
-  const log = await prisma.habitLog.findFirst({
-    where: { habitId, completed: true },
-    orderBy: { date: 'asc' },
-    select: { date: true },
-  });
-  return log?.date ?? null;
-};
-
-/**
  * Определяет, была ли привычка запланирована на дату (для interval нужна referenceDate)
  * @param habit - Привычка из БД
  * @param dateStr - Дата YYYY-MM-DD
@@ -126,14 +112,16 @@ export const computeWeekStates = (
     const frozen = frozenDates.has(dateStr);
     const due = wasHabitDueOnDate(habit, dateStr, firstCompletion);
 
-    if (dateStr > today) {
+    const completed = completedDates.has(dateStr);
+
+    if (habit.deletedDate !== null && dateStr >= habit.deletedDate && !completed) {
+      states.push('off');
+    } else if (dateStr > today) {
       states.push('future');
-    } else if (completedDates.has(dateStr)) {
+    } else if (completed) {
       states.push('done');
     } else if (dateStr < habitCreatedDate) {
       // День до создания привычки — не могло быть выполнено
-      states.push('off');
-    } else if (habit.deletedDate !== null && dateStr >= habit.deletedDate) {
       states.push('off');
     } else if (frozen && due) {
       // День покрыт freeze — отображаем 🧊 (только если был due для этой привычки)
@@ -145,55 +133,6 @@ export const computeWeekStates = (
     }
   }
   return states;
-};
-
-/**
- * Возвращает состояния 7 дней недели для одной привычки
- * @param habitId - ID привычки
- * @param weekStartMonday - Понедельник недели (YYYY-MM-DD)
- * @param timezoneOffset - Смещение часового пояса
- * @returns Массив из 7 состояний: done | missed | frozen | off | future
- */
-export const getWeekStatesForHabit = async (
-  habitId: number,
-  weekStartMonday: string,
-  timezoneOffset: number = 180
-): Promise<DayState[]> => {
-  const today = getTodayDate(timezoneOffset);
-  const habit = await prisma.habit.findUnique({
-    where: { id: habitId },
-  });
-  if (!habit) {
-    return ['off', 'off', 'off', 'off', 'off', 'off', 'off'];
-  }
-
-  const firstCompletion = await getFirstCompletionDate(habitId);
-  const monday = parse(weekStartMonday, 'yyyy-MM-dd', new Date());
-  const weekEndStr = format(addDays(monday, 6), 'yyyy-MM-dd');
-
-  const [completedLogs, freezeUsages] = await Promise.all([
-    prisma.habitLog.findMany({
-      where: {
-        habitId,
-        completed: true,
-        date: { gte: weekStartMonday, lte: weekEndStr },
-      },
-      select: { date: true },
-    }),
-    prisma.freezeUsage.findMany({
-      where: { userId: habit.userId, date: { gte: weekStartMonday, lte: weekEndStr } },
-      select: { date: true },
-    }),
-  ]);
-
-  return computeWeekStates(
-    habit,
-    weekStartMonday,
-    today,
-    new Set(completedLogs.map((l) => l.date)),
-    new Set(freezeUsages.map((f) => f.date)),
-    firstCompletion
-  );
 };
 
 /**
@@ -218,10 +157,39 @@ export const getWeeklyData = async (
     orderBy: { createdAt: 'asc' },
   });
 
+  const today = getTodayDate(timezoneOffset);
+  const weekEnd = format(addDays(parse(weekStartMonday, 'yyyy-MM-dd', new Date()), 6), 'yyyy-MM-dd');
+  const habitIds = habits.map((h) => h.id);
+  const [weekLogs, firstCompletions, freezeUsages] = await Promise.all([
+    prisma.habitLog.findMany({
+      where: { habitId: { in: habitIds }, completed: true, date: { gte: weekStartMonday, lte: weekEnd } },
+      select: { habitId: true, date: true },
+    }),
+    prisma.habitLog.groupBy({
+      by: ['habitId'],
+      where: { habitId: { in: habitIds }, completed: true },
+      _min: { date: true },
+    }),
+    prisma.freezeUsage.findMany({
+      where: { userId, date: { gte: weekStartMonday, lte: weekEnd } },
+      select: { date: true },
+    }),
+  ]);
+  const frozenDates = new Set(freezeUsages.map((f) => f.date));
+  const firstCompletionById = new Map(firstCompletions.map((f) => [f.habitId, f._min.date]));
+
   const rows: HabitWeekRow[] = [];
   const deletedRows: HabitWeekRow[] = [];
   for (const habit of habits) {
-    const states = await getWeekStatesForHabit(habit.id, weekStartMonday, timezoneOffset);
+    const completedDates = new Set(weekLogs.filter((l) => l.habitId === habit.id).map((l) => l.date));
+    const states = computeWeekStates(
+      habit,
+      weekStartMonday,
+      today,
+      completedDates,
+      frozenDates,
+      firstCompletionById.get(habit.id) ?? null
+    );
     const row: HabitWeekRow = {
       habitId: habit.id,
       name: habit.name,

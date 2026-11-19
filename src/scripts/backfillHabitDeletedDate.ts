@@ -2,8 +2,8 @@
  * Разовый бэкфилл `Habit.deletedDate` для привычек, удалённых до появления поля.
  *
  * Источник дня удаления по приоритету:
- *  1. последнее событие `habit_delete` этой привычки в AnalyticsEvent — день в
- *     часовом поясе юзера;
+ *  1. первое событие `habit_delete` этой привычки в AnalyticsEvent (повторные —
+ *     нажатия старой кнопки) — день в часовом поясе юзера;
  *  2. дата последней отметки привычки;
  *  3. день создания привычки (удалена без единой отметки).
  *
@@ -57,19 +57,19 @@ const main = async (): Promise<void> => {
     where: { type: 'habit_delete', userId: { in: [...new Set(habits.map((h) => h.userId))] } },
     select: { userId: true, metadata: true, createdAt: true },
   });
-  const lastDeleteEvent = new Map<string, Date>();
+  const firstDeleteEvent = new Map<string, Date>();
   for (const e of events) {
     const habitId = parseHabitId(e.metadata);
     if (habitId === null) continue;
     const key = `${e.userId}:${habitId}`;
-    const prev = lastDeleteEvent.get(key);
-    if (!prev || e.createdAt > prev) lastDeleteEvent.set(key, e.createdAt);
+    const prev = firstDeleteEvent.get(key);
+    if (!prev || e.createdAt < prev) firstDeleteEvent.set(key, e.createdAt);
   }
 
   const bySource = { event: 0, lastLog: 0, createdAt: 0 };
   for (const habit of habits) {
     const timezoneOffset = habit.user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET;
-    const eventAt = lastDeleteEvent.get(`${habit.userId}:${habit.id}`);
+    const eventAt = firstDeleteEvent.get(`${habit.userId}:${habit.id}`);
     let deletedDate: string;
     if (eventAt) {
       deletedDate = localDate(eventAt, timezoneOffset);

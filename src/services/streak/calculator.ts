@@ -254,14 +254,7 @@ export const calculateOverallStreak = (
   if (habits.length === 0) return 0;
   const { maxDays = 365, lenientToday = false } = options;
 
-  const completedByDate = new Map<string, Set<number>>();
-  for (const log of logs) {
-    if (!log.completed) continue;
-    if (!completedByDate.has(log.date)) {
-      completedByDate.set(log.date, new Set());
-    }
-    completedByDate.get(log.date)!.add(log.habitId);
-  }
+  const completedDates = new Set(logs.filter((l) => l.completed).map((l) => l.date));
   const frozenDates = new Set(freezeUsages.map((f) => f.date));
 
   // Precompute effective start dates для каждой привычки. Если у привычки
@@ -296,16 +289,14 @@ export const calculateOverallStreak = (
       // Due — привычки, которые в этот день были в списке (удалённые — до дня
       // удаления). Любая отметка дня, в том числе удалённой привычки, делает
       // день активным.
-      const dueHabits = habits.filter(
+      const anyDue = habits.some(
         (h) =>
           habitExistsOn(h, cursor) &&
           isHabitDue(h, cursor, logs, referenceDates.get(h.id), startDates.get(h.id))
       );
-      const anyCompletedToday = (completedByDate.get(cursor)?.size ?? 0) > 0;
-
-      if (anyCompletedToday) {
+      if (completedDates.has(cursor)) {
         streak++;
-      } else if (dueHabits.length === 0) {
+      } else if (!anyDue) {
         // Нейтральный день: due нет, счётчик замирает.
       } else if (lenientToday && i === 0) {
         // Open period: пропускаем endDate без обрыва. Применимо только к
@@ -358,16 +349,7 @@ export const countConsecutiveMissedDays = (
   todayDate: string,
   maxDays: number = 60
 ): number => {
-  if (!habits.some((h) => h.isActive)) return 0;
-
-  const completedByDate = new Map<string, Set<number>>();
-  for (const log of logs) {
-    if (!log.completed) continue;
-    if (!completedByDate.has(log.date)) {
-      completedByDate.set(log.date, new Set());
-    }
-    completedByDate.get(log.date)!.add(log.habitId);
-  }
+  const completedDates = new Set(logs.filter((l) => l.completed).map((l) => l.date));
   const frozenDates = new Set(freezeUsages.map((f) => f.date));
 
   let missed = 0;
@@ -378,10 +360,9 @@ export const countConsecutiveMissedDays = (
 
     // Любая отметка дня (в том числе удалённой привычки) делает его активным —
     // как в calculateOverallStreak.
-    if ((completedByDate.get(cursor)?.size ?? 0) > 0) break;
-
-    const dueHabits = habits.filter((h) => habitExistsOn(h, cursor) && isHabitDue(h, cursor, logs));
-    if (dueHabits.length === 0) break; // нейтральный день, останавливаемся
+    if (completedDates.has(cursor)) break;
+    // Нейтральный день (нет due) — останавливаемся.
+    if (!habits.some((h) => habitExistsOn(h, cursor) && isHabitDue(h, cursor, logs))) break;
 
     missed++;
     cursor = format(subDays(parse(cursor, 'yyyy-MM-dd', new Date()), 1), 'yyyy-MM-dd');
