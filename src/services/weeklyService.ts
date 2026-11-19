@@ -18,7 +18,18 @@ export type HabitWeekRow = {
   name: string;
   emoji: string;
   scheduleLabel: string;
+  /** Привычка удалена (показывается только в неделях, где есть её история) */
+  deleted: boolean;
   states: DayState[];
+};
+
+/** Поля привычки, нужные для состояний дней недели */
+type WeekHabit = {
+  frequencyType: string;
+  frequencyDays: number;
+  weekdays: string | null;
+  createdAt: Date;
+  deletedDate: string | null;
 };
 
 const WEEKDAY_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
@@ -87,11 +98,61 @@ export const wasHabitDueOnDate = (
 };
 
 /**
+ * Pure: состояния 7 дней недели одной привычки по уже загруженным отметкам и
+ * заморозкам. У удалённой привычки дни начиная с дня удаления — `off`
+ * (как дни до создания), отметки при этом остаются `done`.
+ * @param habit - Привычка
+ * @param weekStartMonday - Понедельник недели (YYYY-MM-DD)
+ * @param today - Сегодня у юзера (YYYY-MM-DD)
+ * @param completedDates - Даты выполнений привычки
+ * @param frozenDates - Даты заморозок юзера
+ * @param firstCompletion - Дата первого выполнения или null
+ * @returns Массив из 7 состояний
+ */
+export const computeWeekStates = (
+  habit: WeekHabit,
+  weekStartMonday: string,
+  today: string,
+  completedDates: Set<string>,
+  frozenDates: Set<string>,
+  firstCompletion: string | null
+): DayState[] => {
+  const monday = parse(weekStartMonday, 'yyyy-MM-dd', new Date());
+  const habitCreatedDate = format(habit.createdAt, 'yyyy-MM-dd');
+
+  const states: DayState[] = [];
+  for (let d = 0; d < 7; d++) {
+    const dateStr = format(addDays(monday, d), 'yyyy-MM-dd');
+    const frozen = frozenDates.has(dateStr);
+    const due = wasHabitDueOnDate(habit, dateStr, firstCompletion);
+
+    if (dateStr > today) {
+      states.push('future');
+    } else if (completedDates.has(dateStr)) {
+      states.push('done');
+    } else if (dateStr < habitCreatedDate) {
+      // День до создания привычки — не могло быть выполнено
+      states.push('off');
+    } else if (habit.deletedDate !== null && dateStr >= habit.deletedDate) {
+      states.push('off');
+    } else if (frozen && due) {
+      // День покрыт freeze — отображаем 🧊 (только если был due для этой привычки)
+      states.push('frozen');
+    } else if (due) {
+      states.push('missed');
+    } else {
+      states.push('off');
+    }
+  }
+  return states;
+};
+
+/**
  * Возвращает состояния 7 дней недели для одной привычки
  * @param habitId - ID привычки
  * @param weekStartMonday - Понедельник недели (YYYY-MM-DD)
  * @param timezoneOffset - Смещение часового пояса
- * @returns Массив из 7 состояний: done | missed | off | future
+ * @returns Массив из 7 состояний: done | missed | frozen | off | future
  */
 export const getWeekStatesForHabit = async (
   habitId: number,
@@ -125,37 +186,14 @@ export const getWeekStatesForHabit = async (
     }),
   ]);
 
-  const completedDates = new Set(completedLogs.map((l) => l.date));
-  const frozenDates = new Set(freezeUsages.map((f) => f.date));
-
-  const habitCreatedDate = format(habit.createdAt, 'yyyy-MM-dd');
-
-  const states: DayState[] = [];
-  for (let d = 0; d < 7; d++) {
-    const date = addDays(monday, d);
-    const dateStr = format(date, 'yyyy-MM-dd');
-    const isFuture = dateStr > today;
-    const completed = completedDates.has(dateStr);
-    const frozen = frozenDates.has(dateStr);
-    const due = wasHabitDueOnDate(habit, dateStr, firstCompletion);
-
-    if (isFuture) {
-      states.push('future');
-    } else if (completed) {
-      states.push('done');
-    } else if (dateStr < habitCreatedDate) {
-      // День до создания привычки — не могло быть выполнено
-      states.push('off');
-    } else if (frozen && due) {
-      // День покрыт freeze — отображаем 🧊 (только если был due для этой привычки)
-      states.push('frozen');
-    } else if (due) {
-      states.push('missed');
-    } else {
-      states.push('off');
-    }
-  }
-  return states;
+  return computeWeekStates(
+    habit,
+    weekStartMonday,
+    today,
+    new Set(completedLogs.map((l) => l.date)),
+    new Set(freezeUsages.map((f) => f.date)),
+    firstCompletion
+  );
 };
 
 /**
@@ -170,22 +208,35 @@ export const getWeeklyData = async (
   weekStartMonday: string,
   timezoneOffset: number = 180
 ): Promise<{ text: string; rows: HabitWeekRow[] }> => {
+  // Удалённые — только если удалены не раньше этой недели; строка остаётся,
+  // если в неделе есть её история (отметка, пропуск или заморозка).
   const habits = await prisma.habit.findMany({
-    where: { userId, isActive: true },
+    where: {
+      userId,
+      OR: [{ isActive: true }, { isActive: false, deletedDate: { gte: weekStartMonday } }],
+    },
     orderBy: { createdAt: 'asc' },
   });
 
   const rows: HabitWeekRow[] = [];
+  const deletedRows: HabitWeekRow[] = [];
   for (const habit of habits) {
     const states = await getWeekStatesForHabit(habit.id, weekStartMonday, timezoneOffset);
-    rows.push({
+    const row: HabitWeekRow = {
       habitId: habit.id,
       name: habit.name,
       emoji: habit.emoji,
       scheduleLabel: getScheduleLabel(habit),
+      deleted: !habit.isActive,
       states,
-    });
+    };
+    if (habit.isActive) {
+      rows.push(row);
+    } else if (states.some((s) => s === 'done' || s === 'missed' || s === 'frozen')) {
+      deletedRows.push(row);
+    }
   }
+  rows.push(...deletedRows);
 
   const monday = parse(weekStartMonday, 'yyyy-MM-dd', new Date());
   const sunday = addDays(monday, 6);
@@ -215,7 +266,8 @@ export const getWeeklyData = async (
             return '⚪';
         }
       });
-      text += `${row.emoji} ${escapeMarkdown(row.name)} (${row.scheduleLabel})\n`;
+      const label = row.deleted ? 'удалена' : row.scheduleLabel;
+      text += `${row.emoji} ${escapeMarkdown(row.name)} (${label})\n`;
       text += '`' + symbols.join('') + '`\n\n';
     }
   }
