@@ -19,7 +19,7 @@ Users can create habits with flexible schedules (daily / every N days / specific
 
 Чек-лист «что уже есть» — чтобы не предлагать переделать существующее.
 
-- **Привычки**: создание (wizard с эмодзи, расписанием), редактирование, мягкое удаление (`isActive=false`)
+- **Привычки**: создание (wizard с эмодзи, расписанием), переименование и смена эмодзи в деталях привычки, мягкое удаление (`isActive=false`)
 - **Расписание привычки**: daily / interval (раз в N дней) / weekdays (конкретные дни недели)
 - **Отметка выполнения**: inline-кнопка `✅` в `/habits`, в evening reminder (чеклист), в per-habit reminder, через weekly calendar
 - **Backdating отметок до 7 дней** (PR #4) — юзер может отметить за прошлый день через weekly calendar

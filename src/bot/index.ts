@@ -14,6 +14,7 @@ import { handleTimezoneInput } from './handlers/timezoneInput.js';
 import {
   addHabitConversation,
   renameHabitConversation,
+  changeHabitEmojiConversation,
   feedbackConversation,
   setMorningTimeConversation,
   setEveningTimeConversation,
@@ -59,6 +60,7 @@ export const createBot = (token: string): Bot<BotContext> => {
   bot.use(conversations());
   bot.use(createConversation(addHabitConversation, 'addHabit'));
   bot.use(createConversation(renameHabitConversation, 'renameHabit'));
+  bot.use(createConversation(changeHabitEmojiConversation, 'changeHabitEmoji'));
   bot.use(createConversation(feedbackConversation, 'feedback'));
   bot.use(createConversation(setMorningTimeConversation, 'setMorningTime'));
   bot.use(createConversation(setEveningTimeConversation, 'setEveningTime'));

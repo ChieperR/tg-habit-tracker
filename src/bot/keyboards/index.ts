@@ -259,7 +259,7 @@ export type HabitDetailsKeyboardParams = {
 };
 
 /**
- * Создаёт клавиатуру деталей привычки (напоминание + удаление)
+ * Создаёт клавиатуру деталей привычки (напоминание, название и эмодзи, удаление)
  * @param params - Параметры привычки
  * @returns Inline клавиатура
  */
@@ -281,6 +281,7 @@ export const createHabitDetailsKeyboard = (params: HabitDetailsKeyboardParams): 
 
   keyboard
     .text('✏️ Переименовать', serializeCallback({ type: 'habit_rename', habitId }))
+    .text('🎨 Сменить эмодзи', serializeCallback({ type: 'habit_emoji', habitId }))
     .row()
     .text('🗑 Удалить привычку', serializeCallback({ type: 'habit_delete', habitId }))
     .row()
@@ -309,9 +310,12 @@ export const createHabitCreatedKeyboard = (habitId: number, opts?: { isDueToday:
 
 /**
  * Создаёт клавиатуру выбора эмодзи
+ * @param cancelCallback - callback_data кнопки «Отмена» (по умолчанию — в главное меню)
  * @returns Inline клавиатура
  */
-export const createEmojiKeyboard = (): InlineKeyboard => {
+export const createEmojiKeyboard = (
+  cancelCallback: string = serializeCallback({ type: 'back_to_menu' })
+): InlineKeyboard => {
   return new InlineKeyboard()
     .text('💪', 'emoji:💪')
     .text('📚', 'emoji:📚')
@@ -331,5 +335,5 @@ export const createEmojiKeyboard = (): InlineKeyboard => {
     .text('🧹', 'emoji:🧹')
     .text('📱', 'emoji:📱')
     .row()
-    .text('❌ Отмена', serializeCallback({ type: 'back_to_menu' }));
+    .text('❌ Отмена', cancelCallback);
 };

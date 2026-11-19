@@ -380,3 +380,22 @@ export const renameHabit = async (
   });
   return result.count > 0;
 };
+
+/**
+ * Меняет эмодзи привычки. Эмодзи должен быть уже провалидирован
+ * (см. utils/validation.parseHabitEmoji). Фильтр по userId + isActive —
+ * как в renameHabit: owner-check и запрет менять удалённую привычку.
+ *
+ * @returns true если привычка найдена и эмодзи изменён, false иначе.
+ */
+export const changeHabitEmoji = async (
+  habitId: number,
+  userId: number,
+  emoji: string
+): Promise<boolean> => {
+  const result = await prisma.habit.updateMany({
+    where: { id: habitId, userId, isActive: true },
+    data: { emoji },
+  });
+  return result.count > 0;
+};
