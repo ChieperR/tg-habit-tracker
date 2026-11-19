@@ -93,6 +93,7 @@ const loadEvaluatorContext = async (
     weekdays: h.weekdays,
     createdAt: h.createdAt,
     isActive: h.isActive,
+    deletedDate: h.deletedDate,
   }));
   const streakLogs: StreakHabitLog[] = logs as StreakHabitLog[];
   const streakFreezes: StreakFreezeUsage[] = freezeUsages as StreakFreezeUsage[];
@@ -361,7 +362,7 @@ export const buildEveningReminder = async (
 export const buildPerHabitReminder = async (
   userId: number,
   timezoneOffset: number,
-  habit: { id: number; name: string; emoji: string; frequencyType: string; frequencyDays: number; weekdays: string | null; createdAt: Date; isActive: boolean }
+  habit: { id: number; name: string; emoji: string; frequencyType: string; frequencyDays: number; weekdays: string | null; createdAt: Date; isActive: boolean; deletedDate: string | null }
 ): Promise<string> => {
   const todayDate = getTodayDate(timezoneOffset);
 
@@ -377,6 +378,7 @@ export const buildPerHabitReminder = async (
     weekdays: habit.weekdays,
     createdAt: habit.createdAt,
     isActive: habit.isActive,
+    deletedDate: habit.deletedDate,
   };
 
   const trigger = evaluatePerHabitTrigger(streakHabit, logs as StreakHabitLog[], todayDate);

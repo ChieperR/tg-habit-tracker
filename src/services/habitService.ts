@@ -58,14 +58,18 @@ export const getHabitById = async (habitId: number): Promise<Habit | null> => {
 };
 
 /**
- * Удаляет привычку (мягкое удаление — деактивация)
+ * Удаляет привычку (мягкое удаление — деактивация) и запоминает день удаления
+ * в часовом поясе юзера. Повторное удаление уже удалённой ничего не меняет.
  * @param habitId - ID привычки
- * @returns Обновлённая привычка
+ * @param timezoneOffset - Смещение часового пояса юзера в минутах
  */
-export const deleteHabit = async (habitId: number): Promise<Habit> => {
-  return prisma.habit.update({
-    where: { id: habitId },
-    data: { isActive: false },
+export const deleteHabit = async (
+  habitId: number,
+  timezoneOffset: number = DEFAULT_TIMEZONE_OFFSET
+): Promise<void> => {
+  await prisma.habit.updateMany({
+    where: { id: habitId, isActive: true },
+    data: { isActive: false, deletedDate: getTodayDate(timezoneOffset) },
   });
 };
 

@@ -51,6 +51,7 @@ const computeHabitStats = (
     weekdays: string | null;
     createdAt: Date;
     isActive: boolean;
+    deletedDate: string | null;
   },
   allLogs: StreakHabitLog[],
   allFreezes: StreakFreezeUsage[],
@@ -67,6 +68,7 @@ const computeHabitStats = (
     weekdays: habit.weekdays,
     createdAt: habit.createdAt,
     isActive: habit.isActive,
+    deletedDate: habit.deletedDate,
   };
 
   const currentStreak = calculatePerHabitStreak(streakHabit, allLogs, allFreezes, todayDate, {

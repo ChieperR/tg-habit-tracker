@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parse } from 'date-fns';
 import {
+  habitExistsOn,
   getEffectiveStartDate,
   isHabitDue,
   calculatePerHabitStreak,
@@ -21,13 +22,14 @@ import {
 // createdAt round-trip'ится через format() в ту же YYYY-MM-DD строку.
 const toDate = (s: string): Date => parse(s, 'yyyy-MM-dd', new Date());
 
-const daily = (id: number, createdAt: string, isActive = true): StreakHabit => ({
+const daily = (id: number, createdAt: string, isActive = true, deletedDate: string | null = null): StreakHabit => ({
   id,
   frequencyType: 'daily',
   frequencyDays: 1,
   weekdays: null,
   createdAt: toDate(createdAt),
   isActive,
+  deletedDate,
 });
 
 const weekly = (id: number, createdAt: string, weekdays: string, isActive = true): StreakHabit => ({
@@ -37,6 +39,7 @@ const weekly = (id: number, createdAt: string, weekdays: string, isActive = true
   weekdays,
   createdAt: toDate(createdAt),
   isActive,
+  deletedDate: null,
 });
 
 const interval = (id: number, createdAt: string, days: number, isActive = true): StreakHabit => ({
@@ -46,6 +49,7 @@ const interval = (id: number, createdAt: string, days: number, isActive = true):
   weekdays: null,
   createdAt: toDate(createdAt),
   isActive,
+  deletedDate: null,
 });
 
 const log = (habitId: number, date: string, completed = true): StreakHabitLog => ({
@@ -390,5 +394,55 @@ describe('findNearMilestone', () => {
 
   it('пустой список milestone → null', () => {
     expect(findNearMilestone(4, [])).toBeNull();
+  });
+});
+
+describe('удалённые привычки: до дня удаления — как обычные', () => {
+  // h1 удалена 01-08: до 01-08 её due-дни требуют отметки, с 01-08 — нет
+  const deleted = daily(1, '2026-01-01', false, '2026-01-08');
+
+  it('habitExistsOn: до дня удаления — да, в день удаления и после — нет', () => {
+    expect(habitExistsOn(deleted, '2026-01-07')).toBe(true);
+    expect(habitExistsOn(deleted, '2026-01-08')).toBe(false);
+    expect(habitExistsOn(daily(2, '2026-01-01', false), '2026-01-07')).toBe(false);
+    expect(habitExistsOn(daily(3, '2026-01-01'), '2030-01-01')).toBe(true);
+  });
+
+  it('пропуск удалённой привычки до удаления по-прежнему обрывает стрик', () => {
+    const habits = [deleted, weekly(2, '2026-01-01', '1')]; // h2 только по понедельникам
+    // 01-05 (Пн) обе отмечены, 01-06 h1 не отмечена → обрыв; 01-12 (Пн) h2 отмечена
+    const logs = [log(1, '2026-01-05'), log(2, '2026-01-05'), log(2, '2026-01-12')];
+    expect(calculateOverallStreak(habits, logs, [], '2026-01-12')).toBe(1);
+  });
+
+  it('день удаления и дни после не требуют отметки удалённой привычки', () => {
+    const habits = [deleted, weekly(2, '2026-01-01', '1')];
+    const logs = [1, 2, 3, 4, 5, 6, 7].map((d) => log(1, `2026-01-0${d}`)).concat(log(2, '2026-01-12'));
+    // 01-01..01-07 отмечены, 01-08..01-11 нейтральные, 01-12 отмечен
+    expect(calculateOverallStreak(habits, logs, [], '2026-01-12')).toBe(8);
+  });
+
+  it('все привычки удалены: стрик не растёт за счёт старых пропусков', () => {
+    const habits = [daily(1, '2026-01-01', false, '2026-01-20')];
+    const logs = [log(1, '2026-01-02'), log(1, '2026-01-03'), log(1, '2026-01-10')];
+    // 01-11..01-19 пропуски до удаления → стрик оборвался, сегодня 02-01 — 0
+    expect(calculateOverallStreak(habits, logs, [], '2026-02-01', { lenientToday: true })).toBe(0);
+  });
+
+  it('счётчик пропусков: привычку удалили сегодня, вчера её не отметили → пропуск', () => {
+    const habits = [daily(1, '2026-01-01', false, '2026-01-10'), daily(2, '2026-01-09')];
+    expect(countConsecutiveMissedDays(habits, [log(1, '2026-01-08')], [], '2026-01-10')).toBe(1);
+  });
+
+  it('автозаморозка: привычку удалили сегодня, вчера её не отметили → нужна', () => {
+    const habits = [daily(1, '2026-01-01', false, '2026-01-10'), weekly(2, '2026-01-01', '1')];
+    // вчера 01-09 (Пт): h2 не due, h1 ещё была и не отмечена
+    expect(shouldAutoApplyFreeze(habits, [], [], '2026-01-10')).toBe(true);
+  });
+
+  it('perfect day: неотмеченная удалённая привычка до удаления портит день', () => {
+    const habits = [daily(1, '2026-01-01', false, '2026-01-10'), daily(2, '2026-01-01')];
+    expect(isPerfectDay(habits, [log(2, '2026-01-05')], '2026-01-05')).toBe(false);
+    expect(isPerfectDay(habits, [log(2, '2026-01-12')], '2026-01-12')).toBe(true);
   });
 });

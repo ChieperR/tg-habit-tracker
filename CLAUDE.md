@@ -118,6 +118,7 @@ prisma/
 - `reminderTime: String?` — personal reminder time `HH:MM` in user's local timezone, `null` = no reminder
 - `lastHabitReminderDate: String?` — `YYYY-MM-DD`, dedup for habit-specific reminders
 - `isActive: Boolean` — soft delete pattern
+- `deletedDate: String?` — `YYYY-MM-DD` в TZ юзера, день удаления. До этого дня удалённая привычка считается в стриках, пропусках, заморозках и недельном календаре как обычная (`habitExistsOn` в `streak/calculator.ts`), с этого дня — нет. Отметки удалённых привычек засчитываются всегда
 
 ### `HabitLog`
 - `date: String` — `YYYY-MM-DD`
@@ -332,7 +333,7 @@ npm run db:studio
 - **`weekdays` field uses JS `getDay()` convention**: `0 = Sunday`, not Monday
 - **grammY conversations**: any side-effect (especially DB) must be in `conversation.external()`
 - **Reminder deduplication**: always update `lastMorningReminderDate` / `lastEveningReminderDate` after sending
-- **`isActive` soft delete**: never hard-delete habits; set `isActive = false`
+- **`isActive` soft delete**: never hard-delete habits; set `isActive = false` и `deletedDate` (через `deleteHabit`)
 - **`callback_data` Telegram limit**: 64 bytes max — keep serialized callbacks short; current JSON approach is fine for existing types but don't bloat it
 
 ---

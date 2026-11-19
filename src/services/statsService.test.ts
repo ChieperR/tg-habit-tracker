@@ -11,6 +11,7 @@ type MockHabit = {
   weekdays: string | null;
   createdAt: Date;
   isActive: boolean;
+  deletedDate: string | null;
 };
 type MockLog = { habitId: number; date: string; completed: boolean };
 
@@ -91,6 +92,7 @@ describe('getUserStats: удалённые привычки', () => {
     weekdays: null,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     isActive,
+    deletedDate: isActive ? null : '2026-01-15',
   });
   const done = (habitId: number, date: string): MockLog => ({ habitId, date, completed: true });
   const countGreen = (s: string): number => (s.match(/🟩/gu) ?? []).length - 1;

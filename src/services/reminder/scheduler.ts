@@ -127,6 +127,7 @@ export const checkAndSendHabitReminders = async (
         weekdays: habit.weekdays,
         createdAt: habit.createdAt,
         isActive: habit.isActive,
+        deletedDate: habit.deletedDate,
       });
       const keyboard = new InlineKeyboard()
         .text('✅ Выполнено', serializeCallback({ type: 'habit_toggle', habitId: habit.id, source: 'habit_reminder' }));
@@ -184,6 +185,7 @@ export const autoApplyFreezesForMissedDays = async (): Promise<void> => {
           weekdays: true,
           createdAt: true,
           isActive: true,
+          deletedDate: true,
           logs: {
             select: { habitId: true, date: true, completed: true },
           },
@@ -206,6 +208,7 @@ export const autoApplyFreezesForMissedDays = async (): Promise<void> => {
       weekdays: h.weekdays,
       createdAt: h.createdAt,
       isActive: h.isActive,
+      deletedDate: h.deletedDate,
     }));
     const streakLogs: StreakHabitLog[] = user.habits.flatMap((h) => h.logs);
     const streakFreezes: StreakFreezeUsage[] = user.freezeUsages;
