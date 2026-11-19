@@ -62,9 +62,9 @@ export const handleHabitToggle = async (
     }
   }
   const targetDate = effectiveDate ?? todayDate;
-  // Кнопки старых сообщений: удалённую привычку можно отметить только за дни,
-  // когда она ещё была в списке.
-  if (!habit.isActive && (habit.deletedDate === null || targetDate >= habit.deletedDate)) {
+  // Кнопки старых сообщений: отметки удалённой привычки застывают в момент
+  // удаления, переключать их нельзя ни за какой день.
+  if (!habit.isActive) {
     await safeAnswerCallback(ctx, '🗑 Привычка удалена');
     return;
   }
