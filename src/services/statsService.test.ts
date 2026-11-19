@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { computeCompletionRate, renderActivityGraph, getUserStats } from './statsService.js';
+import { computeCompletionRate, renderActivityGraph, getUserStats, formatStatsMessage } from './statsService.js';
 
 type MockHabit = {
   id: number;
@@ -122,6 +122,28 @@ describe('getUserStats: удалённые привычки', () => {
     expect(stats.activeHabits).toBe(1);
   });
 
+  it('все привычки удалены: /stats показывает историю с зелёными днями', async () => {
+    db.habits = [habit(1, false)];
+    db.logs = [done(1, '2026-01-13'), done(1, '2026-01-14')];
+    const msg = formatStatsMessage(await getUserStats(1, 180));
+    expect(msg).not.toContain('Добавь первую');
+    expect(msg).toContain('Активных привычек: *0*');
+    expect(msg).toContain('Всего выполнений: *2*');
+    expect(msg).toContain('Общий стрик активности: *2*');
+    expect(msg).not.toContain('━━━');
+    expect(countGreen(msg)).toBe(2);
+  });
+
+  it.each([
+    ['привычек не было', [], []],
+    ['удалённая без отметок', [habit(1, false)], []],
+    ['удалённая только со снятой отметкой', [habit(1, false)], [{ habitId: 1, date: '2026-01-14', completed: false }]],
+  ] as const)('нет выполнений (%s) → «Добавь первую»', async (_name, habits, logs) => {
+    db.habits = [...habits];
+    db.logs = [...logs];
+    expect(formatStatsMessage(await getUserStats(1, 180))).toContain('Добавь первую');
+  });
+
   it('общий стрик держится на отметках удалённой привычки', async () => {
     db.habits = [habit(1, false)];
     db.logs = [done(1, '2026-01-13'), done(1, '2026-01-14'), done(1, '2026-01-15')];
@@ -130,3 +152,4 @@ describe('getUserStats: удалённые привычки', () => {
     expect(stats.totalCompletions).toBe(3);
   });
 });
+
