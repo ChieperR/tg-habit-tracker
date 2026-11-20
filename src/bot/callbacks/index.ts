@@ -83,6 +83,11 @@ export const handleCallback = async (ctx: BotContext): Promise<void> => {
         await ctx.conversation.enter('renameHabit');
         break;
 
+      case 'habit_emoji':
+        await ctx.answerCallbackQuery();
+        await ctx.conversation.enter('changeHabitEmoji');
+        break;
+
       case 'habit_delete':
         await handleHabitDeletePrompt(ctx, action.habitId);
         break;

@@ -7,7 +7,7 @@ import { serializeCallback } from '../../utils/callback.js';
 import { isHabitDueToday, getTodayDate, getNextDueDay } from '../../utils/date.js';
 import { formatScheduleText } from '../../utils/format.js';
 import { cancelConversationKeyboard, waitTextOrCancel } from './cancelHelper.js';
-import { validateHabitName } from '../../utils/validation.js';
+import { validateHabitName, parseHabitEmoji } from '../../utils/validation.js';
 
 /**
  * Диалог добавления новой привычки
@@ -16,15 +16,6 @@ import { validateHabitName } from '../../utils/validation.js';
 
 /** Названия дней недели для отображения */
 const WEEKDAY_NAMES = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-
-/**
- * Проверяет, является ли строка эмодзи
- */
-const isEmoji = (str: string): boolean => {
-  // Простая проверка на эмодзи (1-2 символа, не ASCII)
-  const emojiRegex = /^[\p{Emoji_Presentation}\p{Extended_Pictographic}]{1,2}$/u;
-  return emojiRegex.test(str.trim());
-};
 
 /**
  * Conversation для добавления привычки
@@ -96,8 +87,8 @@ export const addHabitConversation = async (
       await emojiCtx.answerCallbackQuery(`Выбрано: ${emoji}`);
     }
   } else if (emojiCtx.message?.text) {
-    const inputEmoji = emojiCtx.message.text.trim();
-    if (isEmoji(inputEmoji)) {
+    const inputEmoji = parseHabitEmoji(emojiCtx.message.text);
+    if (inputEmoji) {
       emoji = inputEmoji;
     }
     // Если не эмодзи — используем дефолтный

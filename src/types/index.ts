@@ -139,6 +139,7 @@ export type CallbackAction =
   | { type: 'habit_confirm_delete'; habitId: number }
   | { type: 'habit_details'; habitId: number }
   | { type: 'habit_rename'; habitId: number }
+  | { type: 'habit_emoji'; habitId: number }
   | { type: 'stats' }
   | { type: 'weekly_show'; weekStart?: string }
   | { type: 'weekly_prev'; weekStart: string }
