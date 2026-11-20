@@ -8,6 +8,7 @@ import {
   calculatePerHabitMaxStreak,
   calculatePerHabitStreak,
   getEffectiveStartDate,
+  isMarked,
   type StreakHabit,
   type StreakHabitLog,
   type StreakFreezeUsage,
@@ -28,16 +29,29 @@ const ACTIVITY_GRID_WEEKS = 12;
  * Берёт `lastNDays` (массив YYYY-MM-DD) и пересекает с completion-датами.
  */
 export const computeCompletionRate = (
-  habitLogs: { date: string; completed: boolean }[],
+  habitLogs: { date: string; completed: boolean; count?: number; target?: number }[],
   frequencyDays: number,
   lastNDays: string[]
 ): number => {
   const expectedCompletions = Math.ceil(lastNDays.length / frequencyDays);
   if (expectedCompletions === 0) return 100;
   const window = new Set(lastNDays);
-  const completedCount = habitLogs.filter((l) => l.completed && window.has(l.date)).length;
+  // День с частью отметок засчитывается долей: 1 из 2 — половина дня.
+  const completedCount = habitLogs
+    .filter((l) => window.has(l.date))
+    .reduce((sum, l) => sum + dayShare(l), 0);
   return Math.round((completedCount / expectedCompletions) * 100);
 };
+
+/** Доля выполнения дня: отметки / сколько нужно (не больше 1). */
+const dayShare = (l: { completed: boolean; count?: number; target?: number }): number => {
+  if (l.completed) return 1;
+  if (!l.count || !l.target) return 0;
+  return Math.min(l.count, l.target) / l.target;
+};
+
+/** Сколько отметок в логе дня (у старых логов без count — 1 за выполненный день). */
+const marksOf = (l: StreakHabitLog): number => l.count ?? (l.completed ? 1 : 0);
 
 /** Сколько внедрённых привычек показывать в /stats. */
 const MAX_GRADUATED_SHOWN = 10;
@@ -71,7 +85,7 @@ export const computeGraduatedStats = (
     name: habit.name,
     emoji: habit.emoji,
     graduatedDate,
-    totalCompleted: allLogs.filter((l) => l.habitId === habit.id && l.completed).length,
+    totalCompleted: allLogs.filter((l) => l.habitId === habit.id).reduce((sum, l) => sum + marksOf(l), 0),
     // Заморозки — только до дня завершения: в этот день привычка уже ничего не требовала.
     maxStreak: calculatePerHabitMaxStreak(
       asActive,
@@ -95,7 +109,7 @@ export const getGraduatedHabitSummary = async (
 ): Promise<GraduatedHabitStats | null> => {
   const [habit, logs, freezes] = await Promise.all([
     prisma.habit.findFirst({ where: { id: habitId, userId, graduated: true } }),
-    prisma.habitLog.findMany({ where: { habitId }, select: { habitId: true, date: true, completed: true } }),
+    prisma.habitLog.findMany({ where: { habitId }, select: { habitId: true, date: true, completed: true, count: true, target: true } }),
     prisma.freezeUsage.findMany({ where: { userId }, select: { date: true } }),
   ]);
   return habit ? computeGraduatedStats(habit, logs, freezes) : null;
@@ -122,7 +136,7 @@ const computeHabitStats = (
   lastNDays: string[]
 ): HabitStats => {
   const ownLogs = allLogs.filter((l) => l.habitId === habit.id);
-  const totalCompleted = ownLogs.filter((l) => l.completed).length;
+  const totalCompleted = ownLogs.reduce((sum, l) => sum + marksOf(l), 0);
 
   const streakHabit: StreakHabit = {
     id: habit.id,
@@ -209,7 +223,7 @@ export const getUserStats = async (
     prisma.habit.findMany({ where: { userId } }),
     prisma.habitLog.findMany({
       where: { habit: { userId } },
-      select: { habitId: true, date: true, completed: true },
+      select: { habitId: true, date: true, completed: true, count: true, target: true },
     }),
     prisma.freezeUsage.findMany({
       where: { userId },
@@ -221,7 +235,8 @@ export const getUserStats = async (
   const allFreezes: StreakFreezeUsage[] = allFreezesRaw;
 
   const activeHabits = habits.filter((h) => h.isActive);
-  const totalCompletions = allLogs.filter((l) => l.completed).length;
+  // «Всего выполнений» — отметки, а не дни: у привычки на 2 раза в день полный день даёт 2.
+  const totalCompletions = allLogs.reduce((sum, l) => sum + marksOf(l), 0);
 
   const habitStats: HabitStats[] = activeHabits.map((h) =>
     computeHabitStats(h, allLogs, allFreezes, todayDate, lastNDays)
@@ -241,7 +256,7 @@ export const getUserStats = async (
 
   // Отметки удалённых привычек тоже красят свои дни: удаление привычки не
   // стирает историю (так же считается и общий стрик).
-  const activeDates = new Set(allLogs.filter((l) => l.completed).map((l) => l.date));
+  const activeDates = new Set(allLogs.filter(isMarked).map((l) => l.date));
 
   return {
     totalHabits: habits.length,

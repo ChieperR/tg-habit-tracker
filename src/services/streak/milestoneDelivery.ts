@@ -85,7 +85,7 @@ export const detectAndSendMilestones = async (
 
   const logs = (await prisma.habitLog.findMany({
     where: { habit: { userId } },
-    select: { habitId: true, date: true, completed: true },
+    select: { habitId: true, date: true, completed: true, count: true, target: true },
   })) as StreakHabitLog[];
 
   const freezeUsages = (await prisma.freezeUsage.findMany({

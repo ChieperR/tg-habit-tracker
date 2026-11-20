@@ -27,7 +27,7 @@ vi.mock('../../../services/habitService.js', () => ({
     const completed = count >= target;
     const changed = count !== current || completed !== wasCompleted;
     state.log = { count, target, completed };
-    return { count, target, completed, wasCompleted, changed };
+    return { count, target, completed, wasCompleted, previousCount: current, changed };
   },
   deleteHabit: async () => true,
   graduateHabit: async () => true,

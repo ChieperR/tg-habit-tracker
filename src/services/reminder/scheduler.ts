@@ -199,7 +199,7 @@ export const autoApplyFreezesForMissedDays = async (): Promise<void> => {
           isActive: true,
           deletedDate: true,
           logs: {
-            select: { habitId: true, date: true, completed: true },
+            select: { habitId: true, date: true, completed: true, count: true, target: true },
           },
         },
       },

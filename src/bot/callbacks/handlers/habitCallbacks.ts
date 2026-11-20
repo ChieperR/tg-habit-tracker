@@ -87,16 +87,20 @@ export const handleHabitToggle = async (
         ? mode === 'remove' ? `↩️ Отменено: ${progress}` : `☑️ Отмечено ${progress}`
         : mark.target > 1 ? `⬜ Отметки сброшены: ${progress}` : '⬜ Отменено';
 
-  // Check-in — когда день стал выполненным (как и раньше с одной отметкой):
-  // на это событие опираются воронка и активность в аналитике.
-  if (mark.completed && !mark.wasCompleted) {
+  // Первая отметка дня делает день активным (общий стрик, график), полная —
+  // двигает стрик привычки. Для одного раза в день это одно и то же нажатие.
+  const becameMarked = mark.previousCount === 0 && mark.count > 0;
+  const becameCompleted = mark.completed && !mark.wasCompleted;
+
+  // Check-in — первая отметка привычки за день, как и раньше с одной отметкой.
+  if (becameMarked) {
     void trackEvent(user.id, 'checkin', { habitId, source: source ?? 'habit_list' });
   }
 
   await safeAnswerCallback(ctx, statusText);
 
-  // Streak-machinery: milestone delivery + freeze refund + freeze earn — когда день стал выполненным.
-  if (mark.completed && !mark.wasCompleted) {
+  // Streak-machinery: milestone delivery + freeze refund + freeze earn.
+  if (becameMarked || becameCompleted) {
     void processStreakSideEffects(
       ctx,
       user.id,
@@ -235,7 +239,7 @@ const processStreakSideEffects = async (
       prisma.habit.findMany({ where: { userId } }),
       prisma.habitLog.findMany({
         where: { habit: { userId } },
-        select: { habitId: true, date: true, completed: true },
+        select: { habitId: true, date: true, completed: true, count: true, target: true },
       }),
       prisma.freezeUsage.findMany({
         where: { userId },

@@ -130,6 +130,8 @@ export type MarkResult = {
   completed: boolean;
   /** День был выполнен до нажатия */
   wasCompleted: boolean;
+  /** Отметок до нажатия */
+  previousCount: number;
   /** Нажатие что-то изменило */
   changed: boolean;
 };
@@ -176,17 +178,17 @@ export const markHabit = async (
     const count = nextMarkCount(current, target, mode);
     const completed = count >= target;
     if (existing && count === current && completed === wasCompleted) {
-      return { count, target, completed, wasCompleted, changed: false };
+      return { count, target, completed, wasCompleted, previousCount: current, changed: false };
     }
     if (!existing && count === 0) {
-      return { count, target, completed: false, wasCompleted, changed: false };
+      return { count, target, completed: false, wasCompleted, previousCount: current, changed: false };
     }
     await tx.habitLog.upsert({
       where: { habitId_date: { habitId, date: targetDate } },
       create: { habitId, date: targetDate, count, target, completed },
       update: { count, completed, markedAt: new Date() },
     });
-    return { count, target, completed, wasCompleted, changed: true };
+    return { count, target, completed, wasCompleted, previousCount: current, changed: true };
   });
 };
 

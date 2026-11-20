@@ -22,7 +22,7 @@ Users can create habits with flexible schedules (daily / every N days / specific
 - **Привычки**: создание (wizard с эмодзи, расписанием), переименование и смена эмодзи в деталях привычки, завершение как внедрённой (`graduated`), мягкое удаление (`isActive=false`)
 - **Расписание привычки**: daily / interval (раз в N дней) / weekdays (конкретные дни недели)
 - **Отметка выполнения**: inline-кнопка `✅` в `/habits`, в evening reminder (чеклист), в per-habit reminder, через weekly calendar
-- **Несколько раз в день**: `Habit.timesPerDay` (1–5), кнопка «🔁 Раз в день» в деталях; каждое нажатие — одна отметка (`markHabit`), прогресс «1/2», день выполнен при `count >= target`
+- **Несколько раз в день**: `Habit.timesPerDay` (1–5), кнопка «🔁 Раз в день» в деталях; каждое нажатие — одна отметка (`markHabit`), прогресс «1/2». Подсчёт: стрик привычки — полный день +1, частичный держит, ноль отметок обрывает; общий стрик, график, неделя (🟢), пропуски и автозаморозка — любая отметка (`isMarked`); % за 30 дней — долей дня; «Всего выполнений» — отметки
 - **Backdating отметок до 7 дней** (PR #4) — юзер может отметить за прошлый день через weekly calendar
 - **Стрики per-habit** (HabitLog + unique constraint `[habitId, date]`) — отображаются в `/stats`
 - **Три типа напоминаний** с РАЗНЫМИ ролями (не путать!):
@@ -129,7 +129,7 @@ prisma/
 
 ### `HabitLog`
 - `date: String` — `YYYY-MM-DD`
-- `completed: Boolean` — день выполнен (`count >= target`); стрики, неделя, /stats смотрят только на него
+- `completed: Boolean` — день выполнен полностью (`count >= target`); на него смотрят стрик привычки, perfect day, «все выполнены», опорная дата interval
 - `count: Int` — сколько отметок за день; `target: Int` — сколько было нужно в этот день (timesPerDay на момент первой отметки, у сегодняшнего пересчитывается при смене числа раз)
 - Unique constraint `[habitId, date]` — one record per habit per day (upsert pattern)
 

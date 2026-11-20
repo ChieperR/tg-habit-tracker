@@ -75,7 +75,7 @@ const loadEvaluatorContext = async (
     prisma.habit.findMany({ where: { userId } }),
     prisma.habitLog.findMany({
       where: { habit: { userId } },
-      select: { habitId: true, date: true, completed: true },
+      select: { habitId: true, date: true, completed: true, count: true, target: true },
     }),
     prisma.freezeUsage.findMany({
       where: { userId },
@@ -372,7 +372,7 @@ export const buildPerHabitReminder = async (
 
   const logs = await prisma.habitLog.findMany({
     where: { habit: { userId } },
-    select: { habitId: true, date: true, completed: true },
+    select: { habitId: true, date: true, completed: true, count: true, target: true },
   });
 
   const streakHabit: StreakHabit = {
