@@ -41,6 +41,8 @@ describe('nextMarkCount', () => {
 
   it('add не выходит за target, remove не уходит ниже нуля', () => {
     expect(nextMarkCount(2, 2, 'add')).toBe(2);
+    // Цель снизили ниже уже поставленных отметок — добавление их не срезает.
+    expect(nextMarkCount(3, 2, 'add')).toBe(3);
     expect(nextMarkCount(1, 2, 'add')).toBe(2);
     expect(nextMarkCount(0, 2, 'remove')).toBe(0);
     expect(nextMarkCount(2, 2, 'remove')).toBe(1);

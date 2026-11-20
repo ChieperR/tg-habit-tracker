@@ -53,20 +53,17 @@ export const buildHabitDetailsView = (habit: ViewHabit, times: string[]): HabitV
 /**
  * Экран «сколько раз в день».
  * @param habit - Привычка
- * @param reminderCount - Сколько у привычки напоминаний
  */
 export const buildTimesPerDayView = (
-  habit: Pick<ViewHabit, 'id' | 'name' | 'emoji' | 'timesPerDay'>,
-  reminderCount: number
+  habit: Pick<ViewHabit, 'id' | 'name' | 'emoji' | 'timesPerDay'>
 ): HabitView => {
   const lines = [
     `🔁 *Сколько раз в день: ${habit.emoji} ${escapeMarkdown(habit.name)}*`,
     '',
     'Если привычку выполняешь несколько раз за день, например таблетки утром и вечером, выбери сколько. Каждое нажатие ✅ добавляет одну отметку, день засчитывается, когда отмечены все.',
+    '',
+    'Чтобы бот напоминал про каждый раз, поставь несколько напоминаний: кнопка ⏰ в настройках привычки.',
   ];
-  if (habit.timesPerDay > 1 && reminderCount < habit.timesPerDay) {
-    lines.push('', 'Чтобы бот напоминал про каждый раз, добавь напоминания в «⏰ Изменить напоминания».');
-  }
   return {
     text: lines.join('\n'),
     keyboard: createTimesPerDayKeyboard(habit.id, habit.timesPerDay, MAX_TIMES_PER_DAY),

@@ -20,9 +20,10 @@ vi.mock('../../../services/habitService.js', () => ({
     const target = state.log?.target ?? timesPerDay;
     const current = state.log?.count ?? 0;
     const wasCompleted = state.log?.completed ?? false;
-    const count = mode === 'add' ? Math.min(current + 1, target)
+    const count = mode === 'add' ? (current >= target ? current : current + 1)
       : mode === 'remove' ? Math.max(current - 1, 0)
       : current >= target ? 0 : current + 1;
+    // ^ та же формула, что nextMarkCount; сама она проверена в habitService.test.ts
     const completed = count >= target;
     const changed = count !== current || completed !== wasCompleted;
     state.log = { count, target, completed };
@@ -43,6 +44,19 @@ vi.mock('../../../utils/telegram.js', () => ({
   escapeMarkdown: (s: string) => s,
 }));
 vi.mock('../../../services/analyticsService.js', () => ({ trackEvent: async () => undefined }));
+// Побочные эффекты выполненного дня — без настоящей базы.
+vi.mock('../../../db/index.js', () => ({
+  prisma: {
+    habit: { findMany: async () => [] },
+    habitLog: { findMany: async () => [] },
+    freezeUsage: { findMany: async () => [] },
+  },
+}));
+vi.mock('../../../services/streak/freezeService.js', () => ({
+  tryEarnFreezes: async () => ({ kind: 'none' }),
+  refundFreeze: async () => undefined,
+}));
+vi.mock('../../../services/streak/milestoneDelivery.js', () => ({ detectAndSendMilestones: async () => undefined }));
 vi.mock('../../commands/habits.js', () => ({ showHabitsList: async () => undefined }));
 
 // Сообщение напоминания, отправленное 10.01 в 12:00 по Москве.
@@ -132,7 +146,7 @@ describe('handleHabitToggle: несколько раз в день', () => {
     await handleHabitToggle(ctx, 8);
     await handleHabitToggle(ctx, 8);
     await handleHabitToggle(ctx, 8);
-    expect(state.answers).toEqual(['☑️ Отмечено 1/2', '✅ Выполнено!', '⬜ Отменено']);
+    expect(state.answers).toEqual(['☑️ Отмечено 1/2', '✅ Выполнено!', '⬜ Отметки сброшены: 0/2']);
     expect(state.log).toEqual({ count: 0, target: 2, completed: false });
   });
 

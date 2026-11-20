@@ -85,11 +85,12 @@ export const handleHabitToggle = async (
       ? '✅ Выполнено!'
       : mark.count > 0
         ? mode === 'remove' ? `↩️ Отменено: ${progress}` : `☑️ Отмечено ${progress}`
-        : '⬜ Отменено';
+        : mark.target > 1 ? `⬜ Отметки сброшены: ${progress}` : '⬜ Отменено';
 
-  // Трекаем check-in (fire-and-forget): каждая добавленная отметка.
-  if (mark.changed && mark.count > 0 && (mode !== 'remove')) {
-    void trackEvent(user.id, 'checkin', { habitId, source: source ?? 'habit_list', ...(mark.target > 1 ? { count: mark.count, target: mark.target } : {}) });
+  // Check-in — когда день стал выполненным (как и раньше с одной отметкой):
+  // на это событие опираются воронка и активность в аналитике.
+  if (mark.completed && !mark.wasCompleted) {
+    void trackEvent(user.id, 'checkin', { habitId, source: source ?? 'habit_list' });
   }
 
   await safeAnswerCallback(ctx, statusText);
@@ -444,8 +445,7 @@ export const handleHabitTimes = async (ctx: BotContext, habitId: number): Promis
   }
 
   await safeAnswerCallback(ctx);
-  const reminders = await getHabitReminders(habitId);
-  const view = buildTimesPerDayView(habit, reminders.length);
+  const view = buildTimesPerDayView(habit);
   await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', reply_markup: view.keyboard });
 };
 
@@ -457,11 +457,24 @@ export const handleHabitTimesSet = async (ctx: BotContext, habitId: number, time
   if (!telegramId) return;
 
   const user = await findOrCreateUser(telegramId);
-  const ok = await setHabitTimesPerDay(habitId, user.id, times, user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET);
-  const habit = ok ? await getHabitById(habitId) : null;
-  if (!habit) {
+  // Тот же пояс по умолчанию, что у отметок (handleHabitToggle), — иначе
+  // без настроенного пояса пересчитался бы не тот день.
+  const result = await setHabitTimesPerDay(habitId, user.id, times, user.timezoneOffset ?? 0);
+  const habit = result.kind === 'ok' ? await getHabitById(habitId) : null;
+  if (result.kind !== 'ok' || !habit) {
     await safeAnswerCallback(ctx, '❌ Привычка не найдена');
     return;
+  }
+  if (result.becameCompleted) {
+    void processStreakSideEffects(
+      ctx,
+      user.id,
+      user.telegramId,
+      habitId,
+      result.today,
+      result.today,
+      user.freezeEnabled
+    );
   }
 
   await safeAnswerCallback(ctx, habit.timesPerDay > 1 ? `🔁 Теперь ${formatTimesPerDay(habit.timesPerDay)}` : '🔁 Теперь раз в день');

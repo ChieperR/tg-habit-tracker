@@ -141,7 +141,7 @@ export type MarkResult = {
  * @param mode - Вид нажатия
  */
 export const nextMarkCount = (current: number, target: number, mode: MarkMode): number => {
-  if (mode === 'add') return Math.min(current + 1, target);
+  if (mode === 'add') return current >= target ? current : current + 1;
   if (mode === 'remove') return Math.max(current - 1, 0);
   return current >= target ? 0 : current + 1;
 };
@@ -171,7 +171,7 @@ export const markHabit = async (
       where: { habitId_date: { habitId, date: targetDate } },
     });
     const target = existing?.target ?? timesPerDay;
-    const current = existing ? Math.min(existing.count, target) : 0;
+    const current = existing?.count ?? 0;
     const wasCompleted = existing?.completed ?? false;
     const count = nextMarkCount(current, target, mode);
     const completed = count >= target;
@@ -190,35 +190,36 @@ export const markHabit = async (
   });
 };
 
+/** Итог смены числа раз в день. */
+export type SetTimesResult =
+  | { kind: 'not_found' }
+  | { kind: 'ok'; today: string; becameCompleted: boolean };
+
 /**
  * Меняет, сколько раз в день нужно выполнять привычку. Прошлые дни не
- * трогаются; сегодняшний день (если отметки уже есть) пересчитывается под
- * новое число.
- * @returns false, если привычка не найдена, чужая или не активна
+ * трогаются; у сегодняшнего (если отметки уже есть) меняется только цель —
+ * поставленные отметки остаются, выполнен ли день, пересчитывается.
+ * @returns `becameCompleted` — сегодняшний день стал выполненным из-за смены цели
  */
 export const setHabitTimesPerDay = async (
   habitId: number,
   userId: number,
   timesPerDay: number,
   timezoneOffset: number = DEFAULT_TIMEZONE_OFFSET
-): Promise<boolean> => {
+): Promise<SetTimesResult> => {
   const n = Math.min(Math.max(Math.trunc(timesPerDay), 1), MAX_TIMES_PER_DAY);
-  return prisma.$transaction(async (tx) => {
+  const today = getTodayDate(timezoneOffset);
+  return prisma.$transaction(async (tx): Promise<SetTimesResult> => {
     const { count } = await tx.habit.updateMany({
       where: { id: habitId, userId, isActive: true },
       data: { timesPerDay: n },
     });
-    if (count === 0) return false;
-    const today = getTodayDate(timezoneOffset);
+    if (count === 0) return { kind: 'not_found' };
     const log = await tx.habitLog.findUnique({ where: { habitId_date: { habitId, date: today } } });
-    if (log) {
-      const marks = Math.min(log.count, n);
-      await tx.habitLog.update({
-        where: { id: log.id },
-        data: { target: n, count: marks, completed: marks >= n },
-      });
-    }
-    return true;
+    if (!log) return { kind: 'ok', today, becameCompleted: false };
+    const completed = log.count >= n;
+    await tx.habitLog.update({ where: { id: log.id }, data: { target: n, completed } });
+    return { kind: 'ok', today, becameCompleted: completed && !log.completed };
   });
 };
 
