@@ -161,7 +161,7 @@ export const getHabitHealthMetrics = async (): Promise<HabitHealthMetrics> => {
     },
   });
 
-  const totalDeleted = await prisma.habit.count({ where: { isActive: false } });
+  const totalDeleted = await prisma.habit.count({ where: { isActive: false, graduated: false } });
 
   let alive = 0;
   let dead = 0;

@@ -18,8 +18,10 @@ export type HabitWeekRow = {
   name: string;
   emoji: string;
   scheduleLabel: string;
-  /** Привычка удалена (показывается только в неделях, где есть её история) */
+  /** Привычка удалена или внедрена (показывается только в неделях, где есть её история) */
   deleted: boolean;
+  /** Привычка внедрена (подпись «внедрена» вместо «удалена») */
+  graduated: boolean;
   states: DayState[];
 };
 
@@ -196,6 +198,7 @@ export const getWeeklyData = async (
       emoji: habit.emoji,
       scheduleLabel: getScheduleLabel(habit),
       deleted: !habit.isActive,
+      graduated: habit.graduated,
       states,
     };
     if (habit.isActive) {
@@ -234,7 +237,7 @@ export const getWeeklyData = async (
             return '⚪';
         }
       });
-      const label = row.deleted ? 'удалена' : row.scheduleLabel;
+      const label = row.graduated ? 'внедрена' : row.deleted ? 'удалена' : row.scheduleLabel;
       text += `${row.emoji} ${escapeMarkdown(row.name)} (${label})\n`;
       text += '`' + symbols.join('') + '`\n\n';
     }

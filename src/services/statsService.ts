@@ -1,12 +1,13 @@
 import { prisma } from '../db/index.js';
-import { HabitStats, UserStats } from '../types/index.js';
+import { GraduatedHabitStats, HabitStats, UserStats } from '../types/index.js';
 import { getLastNDays, getTodayDate } from '../utils/date.js';
 import { escapeMarkdown } from '../utils/telegram.js';
-import { format, subWeeks, startOfWeek, addDays, parse } from 'date-fns';
+import { format, subWeeks, startOfWeek, addDays, parse, differenceInCalendarDays } from 'date-fns';
 import {
   calculateOverallStreak,
   calculatePerHabitMaxStreak,
   calculatePerHabitStreak,
+  getEffectiveStartDate,
   type StreakHabit,
   type StreakHabitLog,
   type StreakFreezeUsage,
@@ -36,6 +37,68 @@ export const computeCompletionRate = (
   const window = new Set(lastNDays);
   const completedCount = habitLogs.filter((l) => l.completed && window.has(l.date)).length;
   return Math.round((completedCount / expectedCompletions) * 100);
+};
+
+/** Сколько внедрённых привычек показывать в /stats. */
+const MAX_GRADUATED_SHOWN = 10;
+
+/** Поля привычки, нужные для итога внедрённой. */
+type GraduatedSource = {
+  id: number;
+  name: string;
+  emoji: string;
+  frequencyType: string;
+  frequencyDays: number;
+  weekdays: string | null;
+  createdAt: Date;
+  deletedDate: string | null;
+};
+
+/**
+ * Pure: итог внедрённой привычки — выполнения, лучшая серия и сколько дней
+ * она была в списке (с начала по день завершения включительно).
+ */
+export const computeGraduatedStats = (
+  habit: GraduatedSource,
+  allLogs: StreakHabitLog[],
+  allFreezes: StreakFreezeUsage[]
+): GraduatedHabitStats => {
+  const graduatedDate = habit.deletedDate ?? format(habit.createdAt, 'yyyy-MM-dd');
+  // Серии считаются по истории до дня завершения так же, как у живой привычки.
+  const asActive: StreakHabit = { ...habit, isActive: true, deletedDate: null };
+  const start = getEffectiveStartDate(asActive, allLogs);
+  return {
+    name: habit.name,
+    emoji: habit.emoji,
+    graduatedDate,
+    totalCompleted: allLogs.filter((l) => l.habitId === habit.id && l.completed).length,
+    // Заморозки — только до дня завершения: в этот день привычка уже ничего не требовала.
+    maxStreak: calculatePerHabitMaxStreak(
+      asActive,
+      allLogs,
+      allFreezes.filter((f) => f.date < graduatedDate),
+      graduatedDate
+    ),
+    days:
+      differenceInCalendarDays(parse(graduatedDate, 'yyyy-MM-dd', new Date()), parse(start, 'yyyy-MM-dd', new Date())) + 1,
+  };
+};
+
+/**
+ * Итог только что внедрённой привычки для поздравления.
+ * @param habitId - ID привычки
+ * @param userId - ID владельца (заморозки общие на юзера)
+ */
+export const getGraduatedHabitSummary = async (
+  habitId: number,
+  userId: number
+): Promise<GraduatedHabitStats | null> => {
+  const [habit, logs, freezes] = await Promise.all([
+    prisma.habit.findFirst({ where: { id: habitId, userId, graduated: true } }),
+    prisma.habitLog.findMany({ where: { habitId }, select: { habitId: true, date: true, completed: true } }),
+    prisma.freezeUsage.findMany({ where: { userId }, select: { date: true } }),
+  ]);
+  return habit ? computeGraduatedStats(habit, logs, freezes) : null;
 };
 
 /**
@@ -163,6 +226,10 @@ export const getUserStats = async (
   const habitStats: HabitStats[] = activeHabits.map((h) =>
     computeHabitStats(h, allLogs, allFreezes, todayDate, lastNDays)
   );
+  const graduatedHabits = habits
+    .filter((h) => h.graduated)
+    .map((h) => computeGraduatedStats(h, allLogs, allFreezes))
+    .sort((a, b) => a.graduatedDate.localeCompare(b.graduatedDate));
 
   // Для UI используем lenient версию: пока сегодня не закончен и юзер ещё
   // ничего не отметил, показываем «вчерашний» стрик вместо 0.
@@ -185,6 +252,7 @@ export const getUserStats = async (
     freezeEnabled: user?.freezeEnabled ?? true,
     activityGraph: renderActivityGraph(activeDates, todayDate),
     habitStats,
+    graduatedHabits,
   };
 };
 
@@ -193,7 +261,7 @@ export const getUserStats = async (
  * `getUserStats` — здесь только сборка строки, без БД запросов.
  */
 export const formatStatsMessage = (stats: UserStats): string => {
-  if (stats.activeHabits === 0 && stats.totalCompletions === 0) {
+  if (stats.activeHabits === 0 && stats.totalCompletions === 0 && stats.graduatedHabits.length === 0) {
     return '📊 *Статистика*\n\nУ тебя пока нет привычек. Добавь первую! ✨';
   }
 
@@ -214,6 +282,19 @@ export const formatStatsMessage = (stats: UserStats): string => {
     message += `${habit.emoji} *${escapeMarkdown(habit.name)}*\n`;
     message += `   🔥 Стрик: ${habit.currentStreak} дн.${recordSuffix}\n`;
     message += `   📈 За 30 дней: ${habit.completionRate}%\n\n`;
+  }
+
+  if (stats.graduatedHabits.length > 0) {
+    if (stats.habitStats.length === 0) message += '━━━━━━━━━━━━━━━\n\n';
+    message += '🏆 *Внедрённые*\n';
+    // Последние по дате, чтобы длинная история не упёрлась в лимит сообщения.
+    const shown = stats.graduatedHabits.slice(-MAX_GRADUATED_SHOWN);
+    for (const g of shown) {
+      const [year, month, day] = g.graduatedDate.split('-');
+      message += `${g.emoji} *${escapeMarkdown(g.name)}* — внедрена ${day}.${month}.${year}, выполнений: ${g.totalCompleted}, рекорд: ${g.maxStreak} дн.\n`;
+    }
+    const hidden = stats.graduatedHabits.length - shown.length;
+    if (hidden > 0) message += `…и ещё ${hidden}\n`;
   }
 
   return message;

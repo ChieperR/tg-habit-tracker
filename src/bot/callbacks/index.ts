@@ -6,7 +6,7 @@ import { showStats } from '../commands/stats.js';
 import { showWeekly, getPrevWeekStart, getNextWeekStart } from '../commands/weekly.js';
 import { showSettings } from '../commands/settings.js';
 import { handleHelp } from '../commands/help.js';
-import { handleHabitToggle, handleHabitDeletePrompt, handleHabitConfirmDelete, handleHabitDetails, handleHabitReminders, handleHabitReminderDelete } from './handlers/habitCallbacks.js';
+import { handleHabitToggle, handleHabitDeletePrompt, handleHabitConfirmDelete, handleHabitGraduatePrompt, handleHabitConfirmGraduate, handleHabitDetails, handleHabitReminders, handleHabitReminderDelete } from './handlers/habitCallbacks.js';
 import { handleSettingsCallback } from './handlers/settingsCallbacks.js';
 import { getHabitReminders } from '../../services/habitService.js';
 import { showMainMenu } from './handlers/navigationCallbacks.js';
@@ -95,6 +95,14 @@ export const handleCallback = async (ctx: BotContext): Promise<void> => {
 
       case 'habit_confirm_delete':
         await handleHabitConfirmDelete(ctx, action.habitId);
+        break;
+
+      case 'habit_graduate':
+        await handleHabitGraduatePrompt(ctx, action.habitId);
+        break;
+
+      case 'habit_confirm_graduate':
+        await handleHabitConfirmGraduate(ctx, action.habitId);
         break;
 
       case 'habit_reminder_add':

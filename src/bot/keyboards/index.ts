@@ -108,6 +108,27 @@ export const createDeleteConfirmKeyboard = (habitId: number): InlineKeyboard => 
 };
 
 /**
+ * Клавиатура подтверждения «привычка внедрена»
+ * @param habitId - ID привычки
+ * @returns Inline клавиатура
+ */
+export const createGraduateConfirmKeyboard = (habitId: number): InlineKeyboard => {
+  return new InlineKeyboard()
+    .text('🏆 Да, внедрена', serializeCallback({ type: 'habit_confirm_graduate', habitId }))
+    .text('❌ Отмена', serializeCallback({ type: 'habit_details', habitId }));
+};
+
+/**
+ * Клавиатура под поздравлением с внедрённой привычкой
+ * @returns Inline клавиатура
+ */
+export const createGraduatedKeyboard = (): InlineKeyboard => {
+  return new InlineKeyboard()
+    .text('📝 Мои привычки', serializeCallback({ type: 'habits_list' }))
+    .text('📊 Статистика', serializeCallback({ type: 'stats' }));
+};
+
+/**
  * Создаёт клавиатуру для вечернего чек-листа
  * @param habits - Массив привычек на сегодня
  * @returns Inline клавиатура
@@ -260,7 +281,7 @@ export type HabitDetailsKeyboardParams = {
 };
 
 /**
- * Создаёт клавиатуру деталей привычки (напоминания, название и эмодзи, удаление)
+ * Создаёт клавиатуру деталей привычки (напоминания, название и эмодзи, завершение, удаление)
  * @param params - Параметры привычки
  * @returns Inline клавиатура
  */
@@ -281,6 +302,8 @@ export const createHabitDetailsKeyboard = (params: HabitDetailsKeyboardParams): 
   keyboard
     .text('✏️ Переименовать', serializeCallback({ type: 'habit_rename', habitId }))
     .text('🎨 Сменить эмодзи', serializeCallback({ type: 'habit_emoji', habitId }))
+    .row()
+    .text('🏆 Привычка внедрена', serializeCallback({ type: 'habit_graduate', habitId }))
     .row()
     .text('🗑 Удалить привычку', serializeCallback({ type: 'habit_delete', habitId }))
     .row()

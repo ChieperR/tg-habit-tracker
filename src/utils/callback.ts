@@ -29,6 +29,10 @@ export const serializeCallback = (action: CallbackAction): string => {
       return `h:del:${action.habitId}`;
     case 'habit_confirm_delete':
       return `h:cdel:${action.habitId}`;
+    case 'habit_graduate':
+      return `h:grd:${action.habitId}`;
+    case 'habit_confirm_graduate':
+      return `h:cgrd:${action.habitId}`;
     case 'habit_details':
       return `h:det:${action.habitId}`;
     case 'habit_rename':
@@ -128,6 +132,16 @@ export const parseCallback = (data: string): CallbackAction | null => {
           const habitId = parseInt(parts[2] ?? '', 10);
           if (isNaN(habitId)) return null;
           return { type: 'habit_confirm_delete', habitId };
+        }
+        case 'grd': {
+          const habitId = parseInt(parts[2] ?? '', 10);
+          if (isNaN(habitId)) return null;
+          return { type: 'habit_graduate', habitId };
+        }
+        case 'cgrd': {
+          const habitId = parseInt(parts[2] ?? '', 10);
+          if (isNaN(habitId)) return null;
+          return { type: 'habit_confirm_graduate', habitId };
         }
         case 'det': {
           const habitId = parseInt(parts[2] ?? '', 10);

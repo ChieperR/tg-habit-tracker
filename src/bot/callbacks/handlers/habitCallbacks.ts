@@ -3,11 +3,12 @@ import { BotContext } from '../../../types/index.js';
 import { serializeCallback } from '../../../utils/callback.js';
 import { safeEditMessage, safeAnswerCallback } from '../../../utils/telegram.js';
 import { findOrCreateUser } from '../../../services/userService.js';
-import { toggleHabitCompletion, deleteHabit, getHabitById, getHabitLog, getUserHabitsWithTodayStatus, getUserHabitsWithDateStatus, getHabitReminders, removeHabitReminder } from '../../../services/habitService.js';
+import { toggleHabitCompletion, deleteHabit, graduateHabit, getHabitById, getHabitLog, getUserHabitsWithTodayStatus, getUserHabitsWithDateStatus, getHabitReminders, removeHabitReminder } from '../../../services/habitService.js';
 import { buildHabitDetailsView, buildHabitRemindersView } from '../../views/habitViews.js';
 import { trackEvent } from '../../../services/analyticsService.js';
 import { showHabitsList } from '../../commands/habits.js';
-import { createEveningChecklistKeyboard, createDeleteConfirmKeyboard, createHabitCreatedKeyboard } from '../../keyboards/index.js';
+import { createEveningChecklistKeyboard, createDeleteConfirmKeyboard, createHabitCreatedKeyboard, createGraduateConfirmKeyboard, createGraduatedKeyboard } from '../../keyboards/index.js';
+import { getGraduatedHabitSummary } from '../../../services/statsService.js';
 import { formatScheduleText } from '../../../utils/format.js';
 import { escapeMarkdown } from '../../../utils/telegram.js';
 import { prisma } from '../../../db/index.js';
@@ -67,7 +68,7 @@ export const handleHabitToggle = async (
   // Кнопки старых сообщений: отметки удалённой привычки застывают в момент
   // удаления, переключать их нельзя ни за какой день.
   if (!habit.isActive) {
-    await safeAnswerCallback(ctx, '🗑 Привычка удалена');
+    await safeAnswerCallback(ctx, habit.graduated ? '🏆 Привычка внедрена' : '🗑 Привычка удалена');
     return;
   }
   // «✅ Выполнено» в персональном напоминании только ставит отметку: за день
@@ -309,8 +310,73 @@ export const handleHabitConfirmDelete = async (ctx: BotContext, habitId: number)
 
   const deleted = await deleteHabit(habitId, user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET);
   if (deleted) void trackEvent(user.id, 'habit_delete', { habitId });
-  await ctx.answerCallbackQuery('🗑 Привычка удалена');
+  // Подтверждение из старого сообщения, а привычку уже внедрили — она такой и остаётся.
+  await ctx.answerCallbackQuery(!deleted && habit.graduated ? '🏆 Привычка внедрена' : '🗑 Привычка удалена');
   await showHabitsList(ctx);
+};
+
+/** «выполнение» в нужной форме для числа. */
+const pluralCompletions = (n: number): string => {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'выполнение';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'выполнения';
+  return 'выполнений';
+};
+
+/**
+ * Спрашивает подтверждение «привычка внедрена»
+ */
+export const handleHabitGraduatePrompt = async (ctx: BotContext, habitId: number): Promise<void> => {
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+
+  const user = await findOrCreateUser(telegramId);
+  const habit = await getHabitById(habitId);
+  if (!habit || habit.userId !== user.id || !habit.isActive) {
+    await safeAnswerCallback(ctx, '❌ Привычка не найдена');
+    return;
+  }
+
+  await safeAnswerCallback(ctx);
+  const message = [
+    '🏆 *Привычка внедрена?*',
+    '',
+    `${habit.emoji} *${escapeMarkdown(habit.name)}* уйдёт из списка и напоминаний: отмечать её больше не нужно. Выполнения и серии останутся в статистике.`,
+  ].join('\n');
+  await safeEditMessage(ctx, message, {
+    parse_mode: 'Markdown',
+    reply_markup: createGraduateConfirmKeyboard(habitId),
+  });
+};
+
+/**
+ * Завершает привычку как внедрённую и поздравляет
+ */
+export const handleHabitConfirmGraduate = async (ctx: BotContext, habitId: number): Promise<void> => {
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+
+  const user = await findOrCreateUser(telegramId);
+  const done = await graduateHabit(habitId, user.id, user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET);
+  const summary = await getGraduatedHabitSummary(habitId, user.id);
+  if (!summary) {
+    await safeAnswerCallback(ctx, '❌ Привычка не найдена');
+    return;
+  }
+  if (done) void trackEvent(user.id, 'habit_graduate', { habitId, days: summary.days });
+
+  await safeAnswerCallback(ctx, '🏆 Поздравляю!');
+  const lines = [`🏆 *${summary.emoji} ${escapeMarkdown(summary.name)} — внедрена!*`, ''];
+  lines.push(
+    `За ${summary.days} дн.: ${summary.totalCompleted} ${pluralCompletions(summary.totalCompleted)}, лучшая серия — ${summary.maxStreak} дн.`,
+    ''
+  );
+  lines.push('Теперь это часть твоего дня, отмечать её больше не нужно. История остаётся в статистике. Так держать! 💪');
+  await safeEditMessage(ctx, lines.join('\n'), {
+    parse_mode: 'Markdown',
+    reply_markup: createGraduatedKeyboard(),
+  });
 };
 
 /**

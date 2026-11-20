@@ -151,6 +151,8 @@ const main = async (): Promise<void> => {
       null
     ),
     isActive: h.isActive,
+    graduated: h.graduated,
+    deletedDate: h.deletedDate,
     createdAt: iso(h.createdAt),
   }));
 

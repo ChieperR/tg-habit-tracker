@@ -182,9 +182,12 @@ model Habit {
   lastHabitReminderDate String?
   /// Активна ли привычка
   isActive              Boolean  @default(true)
-  /// День удаления (YYYY-MM-DD в часовом поясе пользователя), null у активных.
-  /// Дни до него считаются в стриках и календаре как у обычной привычки
+  /// День, с которого привычки нет в списке, — удалена или внедрена (YYYY-MM-DD в
+  /// часовом поясе пользователя), null у активных. Дни до него считаются в стриках
+  /// и календаре как у обычной привычки
   deletedDate           String?
+  /// Привычка завершена как внедрённая (isActive = false, deletedDate — день завершения)
+  graduated             Boolean  @default(false)
   /// Дата создания
   createdAt             DateTime @default(now())
 
