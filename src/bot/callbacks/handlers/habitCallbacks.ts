@@ -108,7 +108,8 @@ export const handleHabitToggle = async (
       habitId,
       targetDate,
       todayDate,
-      user.freezeEnabled
+      user.freezeEnabled,
+      becameCompleted
     );
   }
 
@@ -221,7 +222,8 @@ const processStreakSideEffects = async (
   habitId: number,
   targetDate: string,
   todayDate: string,
-  freezeEnabled: boolean
+  freezeEnabled: boolean,
+  dayCompleted: boolean
 ): Promise<void> => {
   try {
     // Refund freeze, если отметка не на сегодня и этот день был покрыт
@@ -279,7 +281,9 @@ const processStreakSideEffects = async (
     // backdated отметка тригерила milestone именно того дня. Если юзер
     // отметил за вчера, стрик считается на вчера; если за сегодня (или
     // без указания даты) targetDate=todayDate, поведение прежнее.
-    await detectAndSendMilestones(ctx.api, telegramId, userId, habitId, targetDate);
+    await detectAndSendMilestones(ctx.api, telegramId, userId, habitId, targetDate, {
+      perHabit: dayCompleted,
+    });
   } catch (err) {
     console.error('[streak] processStreakSideEffects failed:', err);
   }
@@ -477,7 +481,8 @@ export const handleHabitTimesSet = async (ctx: BotContext, habitId: number, time
       habitId,
       result.today,
       result.today,
-      user.freezeEnabled
+      user.freezeEnabled,
+      true
     );
   }
 

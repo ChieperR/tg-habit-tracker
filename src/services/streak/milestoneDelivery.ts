@@ -76,8 +76,12 @@ export const detectAndSendMilestones = async (
   telegramId: bigint,
   userId: number,
   habitId: number,
-  asOfDate: string
+  asOfDate: string,
+  options: { perHabit?: boolean } = {}
 ): Promise<void> => {
+  // Веху стрика привычки проверяем, только если день привычки стал полным:
+  // частичная отметка этот стрик не двигает и не должна присылать его веху.
+  const { perHabit = true } = options;
   // Fetch user habits / logs / freezes
   const habits = (await prisma.habit.findMany({
     where: { userId },
@@ -99,8 +103,8 @@ export const detectAndSendMilestones = async (
   const triggered: TriggeredMilestone[] = [];
 
   // Per-habit streak check
-  const perHabitStreak = calculatePerHabitStreak(habit, logs, freezeUsages, asOfDate);
-  if (PER_HABIT_MILESTONES.some((set) => set.milestone === perHabitStreak)) {
+  const perHabitStreak = perHabit ? calculatePerHabitStreak(habit, logs, freezeUsages, asOfDate) : 0;
+  if (perHabit && PER_HABIT_MILESTONES.some((set) => set.milestone === perHabitStreak)) {
     const set = PER_HABIT_MILESTONES.find((s) => s.milestone === perHabitStreak)!;
     const isNew = await recordMilestone(userId, 'habit', habitId, perHabitStreak);
     if (isNew) {
