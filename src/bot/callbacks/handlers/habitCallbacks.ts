@@ -3,10 +3,11 @@ import { BotContext } from '../../../types/index.js';
 import { serializeCallback } from '../../../utils/callback.js';
 import { safeEditMessage, safeAnswerCallback } from '../../../utils/telegram.js';
 import { findOrCreateUser } from '../../../services/userService.js';
-import { toggleHabitCompletion, deleteHabit, getHabitById, getUserHabitsWithTodayStatus, getUserHabitsWithDateStatus, updateHabitReminder } from '../../../services/habitService.js';
+import { toggleHabitCompletion, deleteHabit, getHabitById, getHabitLog, getUserHabitsWithTodayStatus, getUserHabitsWithDateStatus, getHabitReminders, removeHabitReminder } from '../../../services/habitService.js';
+import { buildHabitDetailsView, buildHabitRemindersView } from '../../views/habitViews.js';
 import { trackEvent } from '../../../services/analyticsService.js';
 import { showHabitsList } from '../../commands/habits.js';
-import { createEveningChecklistKeyboard, createDeleteConfirmKeyboard, createHabitDetailsKeyboard, createHabitCreatedKeyboard } from '../../keyboards/index.js';
+import { createEveningChecklistKeyboard, createDeleteConfirmKeyboard, createHabitCreatedKeyboard } from '../../keyboards/index.js';
 import { formatScheduleText } from '../../../utils/format.js';
 import { escapeMarkdown } from '../../../utils/telegram.js';
 import { prisma } from '../../../db/index.js';
@@ -33,7 +34,7 @@ import { pickDeterministic, renderTemplate } from '../../../services/streak/text
 export const handleHabitToggle = async (
   ctx: BotContext,
   habitId: number,
-  source?: 'evening_reminder' | 'habit_reminder' | 'habit_created',
+  source?: 'evening_reminder' | 'habit_reminder' | 'habit_reminder_undo' | 'habit_created',
   date?: string
 ): Promise<void> => {
   const telegramId = ctx.from?.id;
@@ -55,7 +56,8 @@ export const handleHabitToggle = async (
   // в 64-байтный лимит callback_data. Срабатывает только если юзер сам не
   // передал date (чтобы явный backdating через weekly calendar не перебивался).
   let effectiveDate = date;
-  if (!effectiveDate && (source === 'evening_reminder' || source === 'habit_reminder')) {
+  const fromHabitReminder = source === 'habit_reminder' || source === 'habit_reminder_undo';
+  if (!effectiveDate && (source === 'evening_reminder' || fromHabitReminder)) {
     const msgDateSec = ctx.callbackQuery?.message?.date;
     if (msgDateSec) {
       effectiveDate = formatYMDUtc(new Date(msgDateSec * 1000 + timezoneOffset * 60000));
@@ -68,18 +70,25 @@ export const handleHabitToggle = async (
     await safeAnswerCallback(ctx, '🗑 Привычка удалена');
     return;
   }
-  const newStatus = await toggleHabitCompletion(habitId, timezoneOffset, effectiveDate);
-  const statusText = newStatus ? '✅ Выполнено!' : '⬜ Отменено';
+  // «✅ Выполнено» в персональном напоминании только ставит отметку: за день
+  // может прийти несколько напоминаний, и кнопка в одном из них не должна
+  // снимать отметку, поставленную в другом. Снимает — «↩️ Отменить».
+  const alreadyDone =
+    source === 'habit_reminder' && (await getHabitLog(habitId, targetDate))?.completed === true;
+  const newStatus = alreadyDone
+    ? true
+    : await toggleHabitCompletion(habitId, timezoneOffset, effectiveDate);
+  const statusText = alreadyDone ? '✅ Уже отмечено' : newStatus ? '✅ Выполнено!' : '⬜ Отменено';
 
   // Трекаем check-in (fire-and-forget)
-  if (newStatus) {
+  if (newStatus && !alreadyDone) {
     void trackEvent(user.id, 'checkin', { habitId, source: source ?? 'habit_list' });
   }
 
   await safeAnswerCallback(ctx, statusText);
 
   // Streak-machinery: milestone delivery + freeze refund + freeze earn (только при отметке).
-  if (newStatus) {
+  if (newStatus && !alreadyDone) {
     void processStreakSideEffects(
       ctx,
       user.id,
@@ -91,7 +100,7 @@ export const handleHabitToggle = async (
     );
   }
 
-  if (source === 'habit_reminder') {
+  if (fromHabitReminder) {
     const safeName = escapeMarkdown(habit.name);
     const doneText = newStatus
       ? `✅ *${habit.emoji} ${safeName}* — выполнено!`
@@ -99,7 +108,11 @@ export const handleHabitToggle = async (
 
     const toggleKeyboard = new InlineKeyboard().text(
       newStatus ? '↩️ Отменить' : '✅ Выполнено',
-      serializeCallback({ type: 'habit_toggle', habitId, source: 'habit_reminder' })
+      serializeCallback({
+        type: 'habit_toggle',
+        habitId,
+        source: newStatus ? 'habit_reminder_undo' : 'habit_reminder',
+      })
     );
     if (newStatus) {
       toggleKeyboard
@@ -310,65 +323,70 @@ export const handleHabitDetails = async (ctx: BotContext, habitId: number): Prom
   const user = await findOrCreateUser(telegramId);
   const habit = await getHabitById(habitId);
 
-  if (!habit || habit.userId !== user.id) {
+  if (!habit || habit.userId !== user.id || !habit.isActive) {
     await ctx.answerCallbackQuery('❌ Привычка не найдена');
     return;
   }
 
   await ctx.answerCallbackQuery();
-
-  const schedule = formatScheduleText(habit);
-  const reminderLine = habit.reminderTime
-    ? `⏰ Напоминание: *${habit.reminderTime}*`
-    : '⏰ Напоминание: _не установлено_';
-
-  const message = `
-⚙️ *${habit.emoji} ${escapeMarkdown(habit.name)}*
-
-📅 Расписание: _${schedule}_
-${reminderLine}
-  `.trim();
-
-  await safeEditMessage(ctx, message, {
-    parse_mode: 'Markdown',
-    reply_markup: createHabitDetailsKeyboard({
-      habitId: habit.id,
-      reminderTime: habit.reminderTime,
-    }),
-  });
+  const reminders = await getHabitReminders(habitId);
+  const view = buildHabitDetailsView(habit, reminders.map((r) => r.time));
+  await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', reply_markup: view.keyboard });
 };
 
 /**
- * Удаляет напоминание привычки
+ * Перерисовывает сообщение экраном напоминаний привычки, а если их не
+ * осталось — экраном деталей.
  */
-export const handleHabitReminderRemove = async (ctx: BotContext, habitId: number): Promise<void> => {
+const renderHabitReminders = async (
+  ctx: BotContext,
+  habit: Parameters<typeof buildHabitDetailsView>[0]
+): Promise<void> => {
+  const reminders = await getHabitReminders(habit.id);
+  const view = reminders.length > 0
+    ? buildHabitRemindersView(habit, reminders)
+    : buildHabitDetailsView(habit, []);
+  await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', reply_markup: view.keyboard });
+};
+
+/**
+ * Показывает список напоминаний привычки
+ */
+export const handleHabitReminders = async (ctx: BotContext, habitId: number): Promise<void> => {
   const telegramId = ctx.from?.id;
   if (!telegramId) return;
 
   const user = await findOrCreateUser(telegramId);
   const habit = await getHabitById(habitId);
 
-  if (!habit || habit.userId !== user.id) {
-    await ctx.answerCallbackQuery('❌ Привычка не найдена');
+  if (!habit || habit.userId !== user.id || !habit.isActive) {
+    await safeAnswerCallback(ctx, '❌ Привычка не найдена');
     return;
   }
 
-  await updateHabitReminder(habitId, null);
-  await ctx.answerCallbackQuery('🔕 Напоминание удалено');
+  await safeAnswerCallback(ctx);
+  await renderHabitReminders(ctx, habit);
+};
 
-  const schedule = formatScheduleText(habit);
-  const message = `
-⚙️ *${habit.emoji} ${escapeMarkdown(habit.name)}*
+/**
+ * Убирает одно напоминание привычки и перерисовывает список
+ */
+export const handleHabitReminderDelete = async (
+  ctx: BotContext,
+  reminderId: number,
+  shownTime?: string
+): Promise<void> => {
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
 
-📅 Расписание: _${schedule}_
-⏰ Напоминание: _не установлено_
-  `.trim();
+  const user = await findOrCreateUser(telegramId);
+  const habitId = await removeHabitReminder(reminderId, user.id, shownTime);
+  if (habitId === null) {
+    await safeAnswerCallback(ctx, '❌ Напоминание уже изменено, открой список заново');
+    return;
+  }
 
-  await safeEditMessage(ctx, message, {
-    parse_mode: 'Markdown',
-    reply_markup: createHabitDetailsKeyboard({
-      habitId: habit.id,
-      reminderTime: null,
-    }),
-  });
+  await safeAnswerCallback(ctx, '🔕 Напоминание убрано');
+  const habit = await getHabitById(habitId);
+  if (habit) await renderHabitReminders(ctx, habit);
 };

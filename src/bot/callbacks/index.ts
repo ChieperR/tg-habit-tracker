@@ -6,8 +6,9 @@ import { showStats } from '../commands/stats.js';
 import { showWeekly, getPrevWeekStart, getNextWeekStart } from '../commands/weekly.js';
 import { showSettings } from '../commands/settings.js';
 import { handleHelp } from '../commands/help.js';
-import { handleHabitToggle, handleHabitDeletePrompt, handleHabitConfirmDelete, handleHabitDetails, handleHabitReminderRemove } from './handlers/habitCallbacks.js';
+import { handleHabitToggle, handleHabitDeletePrompt, handleHabitConfirmDelete, handleHabitDetails, handleHabitReminders, handleHabitReminderDelete } from './handlers/habitCallbacks.js';
 import { handleSettingsCallback } from './handlers/settingsCallbacks.js';
+import { getHabitReminders } from '../../services/habitService.js';
 import { showMainMenu } from './handlers/navigationCallbacks.js';
 
 /**
@@ -96,13 +97,33 @@ export const handleCallback = async (ctx: BotContext): Promise<void> => {
         await handleHabitConfirmDelete(ctx, action.habitId);
         break;
 
-      case 'habit_reminder_set':
+      case 'habit_reminder_add':
         await ctx.answerCallbackQuery();
         await ctx.conversation.enter('setHabitReminder');
         break;
 
-      case 'habit_reminder_remove':
-        await handleHabitReminderRemove(ctx, action.habitId);
+      case 'habit_reminder_set':
+        // Кнопки из старых сообщений («Изменить время: 09:00»): если напоминания
+        // уже есть, показываем их список, а не добавляем ещё одно.
+        if ((await getHabitReminders(action.habitId)).length > 0) {
+          await handleHabitReminders(ctx, action.habitId);
+        } else {
+          await ctx.answerCallbackQuery();
+          await ctx.conversation.enter('setHabitReminder');
+        }
+        break;
+
+      case 'habit_reminders':
+        await handleHabitReminders(ctx, action.habitId);
+        break;
+
+      case 'habit_reminder_change':
+        await ctx.answerCallbackQuery();
+        await ctx.conversation.enter('changeHabitReminder');
+        break;
+
+      case 'habit_reminder_delete':
+        await handleHabitReminderDelete(ctx, action.reminderId, action.time);
         break;
 
       case 'stats':

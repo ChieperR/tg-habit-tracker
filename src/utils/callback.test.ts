@@ -21,8 +21,13 @@ describe('serializeCallback / parseCallback round-trip', () => {
     { type: 'habit_details', habitId: 7 },
     { type: 'habit_rename', habitId: 7 },
     { type: 'habit_emoji', habitId: 7 },
+    { type: 'habit_reminders', habitId: 7 },
     { type: 'habit_reminder_set', habitId: 7 },
-    { type: 'habit_reminder_remove', habitId: 7 },
+    { type: 'habit_reminder_change', reminderId: 12 },
+    { type: 'habit_reminder_delete', reminderId: 12 },
+    { type: 'habit_reminder_delete', reminderId: 12, time: '09:30' },
+    { type: 'habit_reminder_add', habitId: 7 },
+    { type: 'habit_toggle', habitId: 42, source: 'habit_reminder_undo' },
     { type: 'stats' },
     { type: 'weekly_show' },
     { type: 'weekly_show', weekStart: '2026-01-05' },
@@ -105,5 +110,11 @@ describe('parseCallback устойчив к мусору', () => {
 
   it('невалидный feedbackId → null', () => {
     expect(parseCallback('fb:r:abc')).toBeNull();
+  });
+});
+
+describe('parseCallback: старые кнопки напоминаний', () => {
+  it('«Убрать напоминание» из старых сообщений открывает список напоминаний', () => {
+    expect(parseCallback('h:rrem:7')).toEqual({ type: 'habit_reminders', habitId: 7 });
   });
 });

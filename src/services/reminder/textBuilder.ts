@@ -358,11 +358,13 @@ export const buildEveningReminder = async (
 /**
  * Сборщик per-habit reminder'а. Возвращает финальный текст «⏰ ... *эмодзи имя*»
  * с учётом trigger'а (normal / habit_missed_1_day / habit_missed_n_days).
+ * `slotTime` передаётся, когда у привычки несколько времён в день.
  */
 export const buildPerHabitReminder = async (
   userId: number,
   timezoneOffset: number,
-  habit: { id: number; name: string; emoji: string; frequencyType: string; frequencyDays: number; weekdays: string | null; createdAt: Date; isActive: boolean; deletedDate: string | null }
+  habit: { id: number; name: string; emoji: string; frequencyType: string; frequencyDays: number; weekdays: string | null; createdAt: Date; isActive: boolean; deletedDate: string | null },
+  slotTime?: string
 ): Promise<string> => {
   const todayDate = getTodayDate(timezoneOffset);
 
@@ -397,7 +399,8 @@ export const buildPerHabitReminder = async (
       break;
   }
 
-  const seed = `${userId}:${habit.id}:${todayDate}:${trigger}`;
+  // Время слота в seed — чтобы второе напоминание за день не повторяло текст первого.
+  const seed = `${userId}:${habit.id}:${todayDate}:${trigger}${slotTime ? `:${slotTime}` : ''}`;
   const variant = pickDeterministic(pool, seed);
 
   return renderTemplate(variant.text, {

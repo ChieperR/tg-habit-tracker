@@ -1,4 +1,4 @@
-import { Habit, HabitLog } from '@prisma/client';
+import { Habit, HabitLog, HabitReminder } from '@prisma/client';
 import { format } from 'date-fns';
 import { prisma } from '../db/index.js';
 import { CreateHabitInput, FrequencyType, HabitWithTodayStatus } from '../types/index.js';
@@ -6,10 +6,10 @@ import {
   getTodayDate,
   isHabitDueToday,
   isHabitDueOnDate,
-  parseTime,
   getCurrentMinutesInTimezone,
   DEFAULT_TIMEZONE_OFFSET,
 } from '../utils/date.js';
+import { MAX_HABIT_REMINDERS, initialLastSentDate, nowInTimezone, sortTimes } from './reminder/habitReminderSlots.js';
 
 /**
  * Сервис для работы с привычками
@@ -141,6 +141,7 @@ export const getUserHabitsWithTodayStatus = async (
         where: { date: today },
         take: 1,
       },
+      reminders: { select: { time: true }, orderBy: { time: 'asc' } },
     },
     orderBy: { createdAt: 'asc' },
   });
@@ -175,7 +176,7 @@ export const getUserHabitsWithTodayStatus = async (
         weekdays: habit.weekdays,
         completedToday,
         isDueToday,
-        reminderTime: habit.reminderTime,
+        reminderTimes: habit.reminders.map((r) => r.time),
       };
     })
   );
@@ -201,6 +202,7 @@ export const getUserHabitsWithDateStatus = async (
         where: { date },
         take: 1,
       },
+      reminders: { select: { time: true }, orderBy: { time: 'asc' } },
     },
     orderBy: { createdAt: 'asc' },
   });
@@ -236,7 +238,7 @@ export const getUserHabitsWithDateStatus = async (
         weekdays: habit.weekdays,
         completedToday: completed,
         isDueToday: isDue,
-        reminderTime: habit.reminderTime,
+        reminderTimes: habit.reminders.map((r) => r.time),
       };
     })
   );
@@ -282,75 +284,149 @@ export const getHabitLogs = async (
   });
 };
 
-/**
- * Устанавливает время персонального напоминания для привычки.
- *
- * Поведение `lastHabitReminderDate` зависит от того, прошёл ли
- * устанавливаемый момент в локальном дне юзера:
- * - **Прошёл** → ставим `lastHabitReminderDate = today`, чтобы scheduler
- *   не выпалил «catch-up» напоминание сразу же после установки. Следующее
- *   настоящее напоминание придёт завтра в назначенное время.
- * - **Ещё впереди** → ставим `lastHabitReminderDate = null` (а не
- *   оставляем как есть), чтобы scheduler гарантированно сработал сегодня
- *   в новое время — даже если до этого уже отправляли по старому
- *   reminderTime.
- *
- * Если `time === null` (юзер удаляет напоминание) — чистим оба поля.
- *
- * @param habitId - ID привычки
- * @param time - Время в формате HH:MM или null для удаления
- * @returns Обновлённая привычка
- */
-export const updateHabitReminder = async (
+/** Результат добавления времён напоминаний. */
+export type AddRemindersResult =
+  | { kind: 'added'; times: string[] }
+  | { kind: 'limit'; free: number }
+  | { kind: 'not_found' };
+
+/** Результат смены времени одного напоминания. */
+export type ChangeReminderResult =
+  | { kind: 'changed'; habitId: number }
+  | { kind: 'exists'; habitId: number }
+  | { kind: 'not_found' };
+
+/** Активная привычка юзера с поясом владельца — для правок напоминаний. */
+const findOwnActiveHabit = async (
   habitId: number,
-  time: string | null
-): Promise<Habit> => {
-  if (time === null) {
-    return prisma.habit.update({
-      where: { id: habitId },
-      data: {
-        reminderTime: null,
-        lastHabitReminderDate: null,
-      },
-    });
-  }
-
-  const habit = await prisma.habit.findUnique({
-    where: { id: habitId },
-    include: { user: { select: { timezoneOffset: true } } },
+  userId: number
+): Promise<{ timezoneOffset: number } | null> => {
+  const habit = await prisma.habit.findFirst({
+    where: { id: habitId, userId, isActive: true },
+    select: { user: { select: { timezoneOffset: true } } },
   });
-  if (!habit) {
-    throw new Error(`Habit ${habitId} not found`);
-  }
+  return habit ? { timezoneOffset: habit.user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET } : null;
+};
 
-  const timezoneOffset = habit.user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET;
-  const currentMinutes = getCurrentMinutesInTimezone(timezoneOffset);
-  const { hours, minutes } = parseTime(time);
-  const targetMinutes = hours * 60 + minutes;
-  const skipToday = currentMinutes >= targetMinutes;
+/**
+ * Персональное напоминание по ID.
+ * @param reminderId - ID напоминания
+ */
+export const getHabitReminderById = async (reminderId: number): Promise<HabitReminder | null> =>
+  prisma.habitReminder.findUnique({ where: { id: reminderId } });
 
-  return prisma.habit.update({
-    where: { id: habitId },
-    data: {
-      reminderTime: time,
-      lastHabitReminderDate: skipToday ? getTodayDate(timezoneOffset) : null,
-    },
+/**
+ * Персональные напоминания привычки по времени.
+ * @param habitId - ID привычки
+ */
+export const getHabitReminders = async (habitId: number): Promise<HabitReminder[]> =>
+  prisma.habitReminder.findMany({ where: { habitId }, orderBy: { time: 'asc' } });
+
+/**
+ * Добавляет привычке времена напоминаний (уже провалидированные HH:MM).
+ * Времена, которые уже есть, пропускаются. Лимит — MAX_HABIT_REMINDERS на
+ * привычку: если новые не помещаются, ничего не добавляется.
+ *
+ * Время, которое сегодня уже прошло, помечается отправленным сегодня — иначе
+ * напоминание пришло бы сразу после настройки (см. initialLastSentDate).
+ *
+ * @returns `added` со всеми временами привычки после добавления, `limit` со
+ * свободным местом или `not_found` для чужой/удалённой привычки.
+ */
+export const addHabitReminders = async (
+  habitId: number,
+  userId: number,
+  times: string[]
+): Promise<AddRemindersResult> => {
+  const habit = await findOwnActiveHabit(habitId, userId);
+  if (!habit) return { kind: 'not_found' };
+
+  const { today, minutes: nowMinutes } = nowInTimezone(habit.timezoneOffset);
+  // Подсчёт и запись в одной транзакции: лимит не обходится параллельным
+  // добавлением, пакет времён пишется целиком или никак.
+  return prisma.$transaction(async (tx): Promise<AddRemindersResult> => {
+    const existing = await tx.habitReminder.findMany({ where: { habitId }, select: { time: true } });
+    const existingTimes = new Set(existing.map((r) => r.time));
+    const fresh = times.filter((t) => !existingTimes.has(t));
+    if (existing.length + fresh.length > MAX_HABIT_REMINDERS) {
+      return { kind: 'limit', free: Math.max(0, MAX_HABIT_REMINDERS - existing.length) };
+    }
+    for (const time of fresh) {
+      await tx.habitReminder.create({
+        data: { habitId, time, lastSentDate: initialLastSentDate(time, nowMinutes, today) },
+      });
+    }
+    return { kind: 'added', times: sortTimes([...existingTimes, ...fresh]) };
   });
 };
 
 /**
+ * Меняет время одного напоминания. lastSentDate пересчитывается как для
+ * нового времени: прошедшее сегодня не придёт сразу, будущее сработает сегодня.
+ *
+ * @returns `changed`, `exists` (у привычки уже есть такое время) или
+ * `not_found` (напоминание удалено, привычка чужая или удалена).
+ */
+export const changeHabitReminderTime = async (
+  reminderId: number,
+  userId: number,
+  time: string
+): Promise<ChangeReminderResult> => {
+  const reminder = await prisma.habitReminder.findUnique({ where: { id: reminderId } });
+  if (!reminder) return { kind: 'not_found' };
+  const habit = await findOwnActiveHabit(reminder.habitId, userId);
+  if (!habit) return { kind: 'not_found' };
+  if (reminder.time === time) return { kind: 'changed', habitId: reminder.habitId };
+
+  const clash = await prisma.habitReminder.findUnique({
+    where: { habitId_time: { habitId: reminder.habitId, time } },
+  });
+  if (clash) return { kind: 'exists', habitId: reminder.habitId };
+
+  const { today, minutes: nowMinutes } = nowInTimezone(habit.timezoneOffset);
+  await prisma.habitReminder.update({
+    where: { id: reminderId },
+    data: { time, lastSentDate: initialLastSentDate(time, nowMinutes, today) },
+  });
+  return { kind: 'changed', habitId: reminder.habitId };
+};
+
+/**
+ * Убирает одно напоминание. `shownTime` — время, подписанное на нажатой
+ * кнопке: если напоминание с тех пор перенесли, ничего не удаляется.
+ * @returns habitId привычки, если напоминание было у своей активной привычки и удалено; иначе null.
+ */
+export const removeHabitReminder = async (
+  reminderId: number,
+  userId: number,
+  shownTime?: string
+): Promise<number | null> => {
+  const reminder = await prisma.habitReminder.findUnique({ where: { id: reminderId } });
+  // Кнопка из устаревшего списка: время уже изменили — не удаляем вслепую.
+  if (!reminder || (shownTime !== undefined && reminder.time !== shownTime)) return null;
+  const habit = await findOwnActiveHabit(reminder.habitId, userId);
+  if (!habit) return null;
+  await prisma.habitReminder.delete({ where: { id: reminderId } });
+  return reminder.habitId;
+};
+
+/**
  * Получает все активные привычки с персональными напоминаниями
- * @returns Привычки с данными пользователя
+ * @returns Привычки с напоминаниями и данными пользователя
  */
 export const getHabitsWithReminders = async (): Promise<
-  (Habit & { user: { telegramId: bigint; timezoneOffset: number | null } })[]
+  (Habit & {
+    reminders: HabitReminder[];
+    user: { telegramId: bigint; timezoneOffset: number | null };
+  })[]
 > => {
   return prisma.habit.findMany({
     where: {
       isActive: true,
-      reminderTime: { not: null },
+      reminders: { some: {} },
     },
     include: {
+      reminders: { orderBy: { time: 'asc' } },
       user: {
         select: { telegramId: true, timezoneOffset: true },
       },

@@ -46,3 +46,23 @@ export const parseHabitEmoji = (raw: string): string | null => {
   if (graphemes.length > MAX_HABIT_EMOJI_GRAPHEMES) return null;
   return graphemes.every((g) => EMOJI_GRAPHEME.test(g)) ? value : null;
 };
+
+const TIME_RE = /^([01]?[0-9]|2[0-3]):([0-5][0-9])$/;
+
+/**
+ * Разбирает ввод одного или нескольких времён через пробел, запятую или
+ * точку с запятой: «9:00», «09:00, 14:00 20:30». Повторы схлопываются.
+ *
+ * @returns `{ times }` — нормализованные HH:MM по возрастанию, либо `{ error }`.
+ */
+export const parseReminderTimes = (raw: string): { times: string[] } | { error: string } => {
+  const tokens = raw.split(/[\s,;]+/).filter(Boolean);
+  if (tokens.length === 0) return { error: 'Нужно время в формате ЧЧ:ММ.' };
+  const times = new Set<string>();
+  for (const token of tokens) {
+    const m = TIME_RE.exec(token);
+    if (!m) return { error: `«${token}» — не время. Нужен формат ЧЧ:ММ, например 07:30.` };
+    times.add(`${m[1]!.padStart(2, '0')}:${m[2]}`);
+  }
+  return { times: [...times].sort((a, b) => a.localeCompare(b)) };
+};

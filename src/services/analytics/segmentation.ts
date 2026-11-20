@@ -35,7 +35,7 @@ export const getUserSegments = async (): Promise<SegmentationResult> => {
       habits: {
         where: { isActive: true },
         select: {
-          reminderTime: true,
+          reminders: { select: { id: true }, take: 1 },
           logs: {
             where: { completed: true },
             orderBy: { date: 'desc' as const },
@@ -63,7 +63,7 @@ export const getUserSegments = async (): Promise<SegmentationResult> => {
 
   for (const user of users) {
     const count7d = userCheckinCount.get(user.id) ?? 0;
-    const hasHabitReminders = user.habits.some((h) => h.reminderTime !== null);
+    const hasHabitReminders = user.habits.some((h) => h.reminders.length > 0);
     const remindersEnabled = user.morningEnabled || user.eveningEnabled || hasHabitReminders;
 
     // Найти дату последнего checkin'а

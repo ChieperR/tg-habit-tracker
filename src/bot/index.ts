@@ -20,6 +20,7 @@ import {
   setEveningTimeConversation,
   setTimezoneConversation,
   setHabitReminderConversation,
+  changeHabitReminderConversation,
 } from './conversations/index.js';
 
 /**
@@ -66,6 +67,7 @@ export const createBot = (token: string): Bot<BotContext> => {
   bot.use(createConversation(setEveningTimeConversation, 'setEveningTime'));
   bot.use(createConversation(setTimezoneConversation, 'setTimezone'));
   bot.use(createConversation(setHabitReminderConversation, 'setHabitReminder'));
+  bot.use(createConversation(changeHabitReminderConversation, 'changeHabitReminder'));
 
   // Команды
   bot.command('start', handleStart);

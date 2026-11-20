@@ -255,27 +255,26 @@ export const createWeekdaysKeyboard = (selectedDays: number[]): InlineKeyboard =
  */
 export type HabitDetailsKeyboardParams = {
   habitId: number;
-  reminderTime: string | null;
+  /** Сколько у привычки персональных напоминаний */
+  reminderCount: number;
 };
 
 /**
- * Создаёт клавиатуру деталей привычки (напоминание, название и эмодзи, удаление)
+ * Создаёт клавиатуру деталей привычки (напоминания, название и эмодзи, удаление)
  * @param params - Параметры привычки
  * @returns Inline клавиатура
  */
 export const createHabitDetailsKeyboard = (params: HabitDetailsKeyboardParams): InlineKeyboard => {
-  const { habitId, reminderTime } = params;
+  const { habitId, reminderCount } = params;
   const keyboard = new InlineKeyboard();
 
-  if (reminderTime) {
+  if (reminderCount > 0) {
     keyboard
-      .text(`⏰ Изменить время: ${reminderTime}`, serializeCallback({ type: 'habit_reminder_set', habitId }))
-      .row()
-      .text('🔕 Убрать напоминание', serializeCallback({ type: 'habit_reminder_remove', habitId }))
+      .text('⏰ Изменить напоминания', serializeCallback({ type: 'habit_reminders', habitId }))
       .row();
   } else {
     keyboard
-      .text('⏰ Установить напоминание', serializeCallback({ type: 'habit_reminder_set', habitId }))
+      .text('⏰ Установить напоминание', serializeCallback({ type: 'habit_reminder_add', habitId }))
       .row();
   }
 
@@ -291,6 +290,33 @@ export const createHabitDetailsKeyboard = (params: HabitDetailsKeyboardParams): 
 };
 
 /**
+ * Клавиатура списка напоминаний привычки: на каждое время — изменить и
+ * убрать, ниже — добавить (пока не достигнут лимит) и назад к привычке.
+ * @param habitId - ID привычки
+ * @param reminders - Напоминания по возрастанию времени
+ * @param maxReminders - Лимит напоминаний на привычку
+ * @returns Inline клавиатура
+ */
+export const createHabitRemindersKeyboard = (
+  habitId: number,
+  reminders: { id: number; time: string }[],
+  maxReminders: number
+): InlineKeyboard => {
+  const keyboard = new InlineKeyboard();
+  for (const r of reminders) {
+    keyboard
+      .text(`✏️ ${r.time}`, serializeCallback({ type: 'habit_reminder_change', reminderId: r.id }))
+      .text('🔕 Убрать', serializeCallback({ type: 'habit_reminder_delete', reminderId: r.id, time: r.time }))
+      .row();
+  }
+  if (reminders.length < maxReminders) {
+    keyboard.text('➕ Добавить время', serializeCallback({ type: 'habit_reminder_add', habitId })).row();
+  }
+  keyboard.text('◀️ Назад', serializeCallback({ type: 'habit_details', habitId }));
+  return keyboard;
+};
+
+/**
  * Создаёт клавиатуру после создания привычки (с опцией напоминания)
  * @param habitId - ID созданной привычки
  * @returns Inline клавиатура
@@ -302,7 +328,7 @@ export const createHabitCreatedKeyboard = (habitId: number, opts?: { isDueToday:
     kb.text(`${status} ${opts.emoji}`, serializeCallback({ type: 'habit_toggle', habitId, source: 'habit_created' }));
     kb.row();
   }
-  kb.text('⏰ Добавить напоминание', serializeCallback({ type: 'habit_reminder_set', habitId }));
+  kb.text('⏰ Добавить напоминание', serializeCallback({ type: 'habit_reminder_add', habitId }));
   kb.row();
   kb.text('📝 К привычкам', serializeCallback({ type: 'habits_list' }));
   return kb;
