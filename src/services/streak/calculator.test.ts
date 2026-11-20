@@ -446,3 +446,37 @@ describe('удалённые привычки: до дня удаления — 
     expect(isPerfectDay(habits, [log(2, '2026-01-12')], '2026-01-12')).toBe(true);
   });
 });
+
+describe('привычка на несколько раз в день', () => {
+  const h = daily(1, '2026-01-01');
+  const full = (date: string): StreakHabitLog => ({ habitId: 1, date, completed: true, count: 2 });
+  const part = (date: string): StreakHabitLog => ({ habitId: 1, date, completed: false, count: 1 });
+  const none = (date: string): StreakHabitLog => ({ habitId: 1, date, completed: false, count: 0 });
+
+  it('стрик привычки: полный день +1, частичный держит, но не растит', () => {
+    const logs = [full('2026-01-01'), part('2026-01-02'), full('2026-01-03')];
+    expect(calculatePerHabitStreak(h, logs, [], '2026-01-03')).toBe(2);
+    expect(calculatePerHabitMaxStreak(h, logs, [], '2026-01-03')).toBe(2);
+  });
+
+  it('стрик привычки: день без отметок обрывает, как раньше', () => {
+    const logs = [full('2026-01-01'), none('2026-01-02'), full('2026-01-03')];
+    expect(calculatePerHabitStreak(h, logs, [], '2026-01-03')).toBe(1);
+  });
+
+  it('общий стрик: день засчитан при любой отметке', () => {
+    const logs = [full('2026-01-01'), part('2026-01-02'), part('2026-01-03')];
+    expect(calculateOverallStreak([h], logs, [], '2026-01-03')).toBe(3);
+  });
+
+  it('частичный день — не пропуск: заморозка не тратится, счётчик пропусков ноль', () => {
+    const logs = [full('2026-01-01'), part('2026-01-02')];
+    expect(shouldAutoApplyFreeze([h], logs, [], '2026-01-03')).toBe(false);
+    expect(countConsecutiveMissedDays([h], logs, [], '2026-01-03')).toBe(0);
+    expect(countHabitConsecutiveMissedDueDays(h, logs, '2026-01-02')).toBe(0);
+  });
+
+  it('perfect day — только полный', () => {
+    expect(isPerfectDay([h], [part('2026-01-02')], '2026-01-02')).toBe(false);
+  });
+});

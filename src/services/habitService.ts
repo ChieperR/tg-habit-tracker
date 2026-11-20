@@ -108,37 +108,121 @@ export const getHabitLog = async (habitId: number, date: string): Promise<HabitL
   });
 };
 
+/** Сколько раз в день можно поставить привычке. */
+export const MAX_TIMES_PER_DAY = 5;
+
 /**
- * Переключает статус выполнения привычки за указанную дату (по умолчанию — сегодня)
- * @param habitId - ID привычки
- * @param timezoneOffset - Смещение часового пояса
- * @param date - Дата в формате YYYY-MM-DD; если не передана — используется сегодня
- * @returns Новый статус (true = выполнено)
+ * Как нажатие меняет отметки дня:
+ * - `cycle` — кнопки списка и чеклиста: +1, а после полного дня — сброс в 0
+ *   (при одном разе в день это прежнее «отметить / снять»);
+ * - `add` — «✅ Выполнено» в напоминании: +1, на полном дне ничего не меняет;
+ * - `remove` — «↩️ Отменить» в напоминании: −1.
  */
-export const toggleHabitCompletion = async (
+export type MarkMode = 'cycle' | 'add' | 'remove';
+
+/** Отметки дня после нажатия. */
+export type MarkResult = {
+  /** Сколько отметок теперь */
+  count: number;
+  /** Сколько нужно за этот день */
+  target: number;
+  /** День выполнен (count >= target) */
+  completed: boolean;
+  /** День был выполнен до нажатия */
+  wasCompleted: boolean;
+  /** Отметок до нажатия */
+  previousCount: number;
+  /** Нажатие что-то изменило */
+  changed: boolean;
+};
+
+/**
+ * Pure: следующее число отметок дня для нажатия.
+ * @param current - Отметок до нажатия
+ * @param target - Сколько нужно за день
+ * @param mode - Вид нажатия
+ */
+export const nextMarkCount = (current: number, target: number, mode: MarkMode): number => {
+  if (mode === 'add') return current >= target ? current : current + 1;
+  if (mode === 'remove') return Math.max(current - 1, 0);
+  return current >= target ? 0 : current + 1;
+};
+
+/**
+ * Ставит или снимает одну отметку привычки за дату (по умолчанию — сегодня).
+ * Сколько нужно за день, фиксируется в логе при первой отметке дня
+ * (`target` = timesPerDay привычки), поэтому смена числа раз не переписывает
+ * прошлые дни.
+ * @param habitId - ID привычки
+ * @param timesPerDay - Сколько раз в день сейчас у привычки
+ * @param timezoneOffset - Смещение часового пояса
+ * @param date - Дата YYYY-MM-DD; если не передана — сегодня
+ * @param mode - Вид нажатия (см. MarkMode)
+ */
+export const markHabit = async (
   habitId: number,
+  timesPerDay: number,
   timezoneOffset: number = 180,
-  date?: string
-): Promise<boolean> => {
+  date?: string,
+  mode: MarkMode = 'cycle'
+): Promise<MarkResult> => {
   const targetDate = date ?? getTodayDate(timezoneOffset);
-  const existingLog = await getHabitLog(habitId, targetDate);
-
-  if (existingLog) {
-    const updated = await prisma.habitLog.update({
-      where: { id: existingLog.id },
-      data: { completed: !existingLog.completed, markedAt: new Date() },
+  // Чтение и запись в одной транзакции: два быстрых нажатия не теряют отметку.
+  return prisma.$transaction(async (tx): Promise<MarkResult> => {
+    const existing = await tx.habitLog.findUnique({
+      where: { habitId_date: { habitId, date: targetDate } },
     });
-    return updated.completed;
-  }
-
-  await prisma.habitLog.create({
-    data: {
-      habitId,
-      date: targetDate,
-      completed: true,
-    },
+    const target = existing?.target ?? timesPerDay;
+    const current = existing?.count ?? 0;
+    const wasCompleted = existing?.completed ?? false;
+    const count = nextMarkCount(current, target, mode);
+    const completed = count >= target;
+    if (existing && count === current && completed === wasCompleted) {
+      return { count, target, completed, wasCompleted, previousCount: current, changed: false };
+    }
+    if (!existing && count === 0) {
+      return { count, target, completed: false, wasCompleted, previousCount: current, changed: false };
+    }
+    await tx.habitLog.upsert({
+      where: { habitId_date: { habitId, date: targetDate } },
+      create: { habitId, date: targetDate, count, target, completed },
+      update: { count, completed, markedAt: new Date() },
+    });
+    return { count, target, completed, wasCompleted, previousCount: current, changed: true };
   });
-  return true;
+};
+
+/** Итог смены числа раз в день. */
+export type SetTimesResult =
+  | { kind: 'not_found' }
+  | { kind: 'ok'; today: string; becameCompleted: boolean };
+
+/**
+ * Меняет, сколько раз в день нужно выполнять привычку. Прошлые дни не
+ * трогаются; у сегодняшнего (если отметки уже есть) меняется только цель —
+ * поставленные отметки остаются, выполнен ли день, пересчитывается.
+ * @returns `becameCompleted` — сегодняшний день стал выполненным из-за смены цели
+ */
+export const setHabitTimesPerDay = async (
+  habitId: number,
+  userId: number,
+  timesPerDay: number,
+  timezoneOffset: number = DEFAULT_TIMEZONE_OFFSET
+): Promise<SetTimesResult> => {
+  const n = Math.min(Math.max(Math.trunc(timesPerDay), 1), MAX_TIMES_PER_DAY);
+  const today = getTodayDate(timezoneOffset);
+  return prisma.$transaction(async (tx): Promise<SetTimesResult> => {
+    const { count } = await tx.habit.updateMany({
+      where: { id: habitId, userId, isActive: true },
+      data: { timesPerDay: n },
+    });
+    if (count === 0) return { kind: 'not_found' };
+    const log = await tx.habitLog.findUnique({ where: { habitId_date: { habitId, date: today } } });
+    if (!log) return { kind: 'ok', today, becameCompleted: false };
+    const completed = log.count >= n;
+    await tx.habitLog.update({ where: { id: log.id }, data: { target: n, completed } });
+    return { kind: 'ok', today, becameCompleted: completed && !log.completed };
+  });
 };
 
 /**
@@ -195,6 +279,9 @@ export const getUserHabitsWithTodayStatus = async (
         weekdays: habit.weekdays,
         completedToday,
         isDueToday,
+        timesPerDay: habit.timesPerDay,
+        doneCount: habit.logs[0]?.count ?? 0,
+        targetToday: habit.logs[0]?.target ?? habit.timesPerDay,
         reminderTimes: habit.reminders.map((r) => r.time),
       };
     })
@@ -257,6 +344,9 @@ export const getUserHabitsWithDateStatus = async (
         weekdays: habit.weekdays,
         completedToday: completed,
         isDueToday: isDue,
+        timesPerDay: habit.timesPerDay,
+        doneCount: habit.logs[0]?.count ?? 0,
+        targetToday: habit.logs[0]?.target ?? habit.timesPerDay,
         reminderTimes: habit.reminders.map((r) => r.time),
       };
     })

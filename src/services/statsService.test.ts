@@ -14,7 +14,7 @@ type MockHabit = {
   deletedDate: string | null;
   graduated?: boolean;
 };
-type MockLog = { habitId: number; date: string; completed: boolean };
+type MockLog = { habitId: number; date: string; completed: boolean; count?: number; target?: number };
 
 const db = vi.hoisted(() => ({ habits: [] as MockHabit[], logs: [] as MockLog[] }));
 
@@ -26,6 +26,17 @@ vi.mock('../db/index.js', () => ({
     freezeUsage: { findMany: async () => [] },
   },
 }));
+
+describe('computeCompletionRate: несколько раз в день', () => {
+  const days = ['2026-01-01', '2026-01-02'];
+  it('день с 1 из 2 — половина дня', () => {
+    const logs = [
+      { date: '2026-01-01', completed: true, count: 2, target: 2 },
+      { date: '2026-01-02', completed: false, count: 1, target: 2 },
+    ];
+    expect(computeCompletionRate(logs, 1, days)).toBe(75);
+  });
+});
 
 describe('computeCompletionRate', () => {
   const days10 = Array.from({ length: 10 }, (_, i) => `2026-01-${String(i + 1).padStart(2, '0')}`);
@@ -186,5 +197,20 @@ describe('внедрённая привычка', () => {
     const text = formatStatsMessage(stats);
     expect(text).toContain('🏆 *Внедрённые*');
     expect(text).toContain('🏃 *Бег* — внедрена 12.01.2026, выполнений: 9, рекорд: 5 дн.');
+  });
+});
+
+describe('всего выполнений — отметки', () => {
+  it('полный день на 2 раза даёт 2, частичный 1', async () => {
+    db.habits = [{
+      id: 3, userId: 1, name: 'Таблетки', emoji: '💊', frequencyType: 'daily', frequencyDays: 1, weekdays: null,
+      createdAt: new Date('2026-01-01T10:00:00Z'), isActive: true, deletedDate: null,
+    }];
+    db.logs = [
+      { habitId: 3, date: '2026-01-01', completed: true, count: 2, target: 2 } as MockLog,
+      { habitId: 3, date: '2026-01-02', completed: false, count: 1, target: 2 } as MockLog,
+    ];
+    const stats = await getUserStats(1, 180);
+    expect(stats.totalCompletions).toBe(3);
   });
 });

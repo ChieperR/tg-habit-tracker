@@ -1,3 +1,4 @@
+import { formatDayProgress } from '../../utils/format.js';
 import { BotContext, HabitWithTodayStatus } from '../../types/index.js';
 import { findOrCreateUser } from '../../services/userService.js';
 import { getUserHabitsWithTodayStatus, getUserHabitsWithDateStatus } from '../../services/habitService.js';
@@ -37,7 +38,8 @@ const buildHabitsMessage = (
       const [firstTime] = habit.reminderTimes;
       const moreTimes = habit.reminderTimes.length > 1 ? ` +${habit.reminderTimes.length - 1}` : '';
       const reminderIndicator = firstTime ? `  ⏰ ${firstTime}${moreTimes}` : '';
-      message += `${status} ${habit.emoji} ${escapeMarkdown(habit.name)}${dueIndicator}${reminderIndicator}\n`;
+      const progress = formatDayProgress(habit.doneCount, habit.targetToday);
+      message += `${status} ${habit.emoji} ${escapeMarkdown(habit.name)}${progress ? ` ${progress}` : ''}${dueIndicator}${reminderIndicator}\n`;
     }
     message += '\n';
   }

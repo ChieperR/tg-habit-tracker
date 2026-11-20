@@ -39,6 +39,10 @@ export const serializeCallback = (action: CallbackAction): string => {
       return `h:ren:${action.habitId}`;
     case 'habit_emoji':
       return `h:emo:${action.habitId}`;
+    case 'habit_times':
+      return `h:tpd:${action.habitId}`;
+    case 'habit_times_set':
+      return `h:tpd:${action.habitId}:${action.times}`;
     case 'habit_reminders':
       return `h:rem:${action.habitId}`;
     case 'habit_reminder_set':
@@ -152,6 +156,14 @@ export const parseCallback = (data: string): CallbackAction | null => {
           const habitId = parseInt(parts[2] ?? '', 10);
           if (isNaN(habitId)) return null;
           return { type: 'habit_rename', habitId };
+        }
+        case 'tpd': {
+          const habitId = parseInt(parts[2] ?? '', 10);
+          if (isNaN(habitId)) return null;
+          if (parts[3] === undefined) return { type: 'habit_times', habitId };
+          const times = parseInt(parts[3], 10);
+          if (isNaN(times)) return null;
+          return { type: 'habit_times_set', habitId, times };
         }
         case 'emo': {
           const habitId = parseInt(parts[2] ?? '', 10);

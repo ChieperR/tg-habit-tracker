@@ -164,7 +164,8 @@ export const getWeeklyData = async (
   const habitIds = habits.map((h) => h.id);
   const [weekLogs, firstCompletions, freezeUsages] = await Promise.all([
     prisma.habitLog.findMany({
-      where: { habitId: { in: habitIds }, completed: true, date: { gte: weekStartMonday, lte: weekEnd } },
+      // Любая отметка дня — 🟢, в том числе часть отметок у привычки на несколько раз в день.
+      where: { habitId: { in: habitIds }, count: { gt: 0 }, date: { gte: weekStartMonday, lte: weekEnd } },
       select: { habitId: true, date: true },
     }),
     prisma.habitLog.groupBy({

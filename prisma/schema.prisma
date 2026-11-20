@@ -186,6 +186,8 @@ model Habit {
   /// часовом поясе пользователя), null у активных. Дни до него считаются в стриках
   /// и календаре как у обычной привычки
   deletedDate           String?
+  /// Сколько отметок нужно за день, чтобы день засчитался (1–5)
+  timesPerDay           Int      @default(1)
   /// Привычка завершена как внедрённая (isActive = false, deletedDate — день завершения)
   graduated             Boolean  @default(false)
   /// Дата создания
@@ -224,8 +226,12 @@ model HabitLog {
   id        Int      @id @default(autoincrement())
   /// Дата выполнения (только дата, без времени)
   date      String // Формат: YYYY-MM-DD
-  /// Выполнена ли привычка
+  /// Выполнена ли привычка за день: count >= target
   completed Boolean  @default(false)
+  /// Сколько отметок поставлено за день
+  count     Int      @default(1)
+  /// Сколько отметок нужно было в этот день (timesPerDay на момент первой отметки дня)
+  target    Int      @default(1)
   /// Когда была сделана отметка
   markedAt  DateTime @default(now())
 

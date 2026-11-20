@@ -68,7 +68,11 @@ export const renameHabitConversation = async (
       `✅ Переименовано: *${escapeMarkdown(`${habit.emoji} ${validated.name}`)}*`,
       {
         parse_mode: 'Markdown',
-        reply_markup: createHabitDetailsKeyboard({ habitId, reminderCount: reminders.length }),
+        reply_markup: createHabitDetailsKeyboard({
+          habitId,
+          reminderCount: reminders.length,
+          timesPerDay: habit.timesPerDay,
+        }),
       }
     );
     return;

@@ -6,7 +6,7 @@ import { showStats } from '../commands/stats.js';
 import { showWeekly, getPrevWeekStart, getNextWeekStart } from '../commands/weekly.js';
 import { showSettings } from '../commands/settings.js';
 import { handleHelp } from '../commands/help.js';
-import { handleHabitToggle, handleHabitDeletePrompt, handleHabitConfirmDelete, handleHabitGraduatePrompt, handleHabitConfirmGraduate, handleHabitDetails, handleHabitReminders, handleHabitReminderDelete } from './handlers/habitCallbacks.js';
+import { handleHabitToggle, handleHabitDeletePrompt, handleHabitConfirmDelete, handleHabitGraduatePrompt, handleHabitConfirmGraduate, handleHabitTimes, handleHabitTimesSet, handleHabitDetails, handleHabitReminders, handleHabitReminderDelete } from './handlers/habitCallbacks.js';
 import { handleSettingsCallback } from './handlers/settingsCallbacks.js';
 import { getHabitReminders } from '../../services/habitService.js';
 import { showMainMenu } from './handlers/navigationCallbacks.js';
@@ -82,6 +82,14 @@ export const handleCallback = async (ctx: BotContext): Promise<void> => {
       case 'habit_rename':
         await ctx.answerCallbackQuery();
         await ctx.conversation.enter('renameHabit');
+        break;
+
+      case 'habit_times':
+        await handleHabitTimes(ctx, action.habitId);
+        break;
+
+      case 'habit_times_set':
+        await handleHabitTimesSet(ctx, action.habitId, action.times);
         break;
 
       case 'habit_emoji':

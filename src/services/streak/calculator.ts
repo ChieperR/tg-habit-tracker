@@ -38,8 +38,17 @@ export type StreakHabit = {
 export type StreakHabitLog = {
   habitId: number;
   date: string;
+  /** День выполнен полностью (все отметки дня) */
   completed: boolean;
+  /** Сколько отметок за день; у привычки на несколько раз может быть > 0 при completed = false */
+  count?: number;
 };
+
+/**
+ * Есть ли у дня хоть одна отметка. Для общего стрика активности, пропусков и
+ * автозаморозки этого достаточно; стрик привычки растёт только от полного дня.
+ */
+export const isMarked = (log: StreakHabitLog): boolean => log.completed || (log.count ?? 0) > 0;
 
 /** Минимальная форма FreezeUsage (нужна только дата). */
 export type StreakFreezeUsage = {
@@ -56,7 +65,7 @@ export type StreakFreezeUsage = {
  */
 export const getEffectiveStartDate = (habit: StreakHabit, logs: StreakHabitLog[]): string => {
   const habitCreatedDate = format(habit.createdAt, 'yyyy-MM-dd');
-  const ownCompleted = logs.filter((l) => l.habitId === habit.id && l.completed);
+  const ownCompleted = logs.filter((l) => l.habitId === habit.id && isMarked(l));
   if (ownCompleted.length === 0) return habitCreatedDate;
   let earliest = ownCompleted[0]!.date;
   for (const l of ownCompleted) {
@@ -153,6 +162,9 @@ export const calculatePerHabitStreak = (
   const completedDates = new Set(
     logs.filter((l) => l.habitId === habit.id && l.completed).map((l) => l.date)
   );
+  const partialDates = new Set(
+    logs.filter((l) => l.habitId === habit.id && !l.completed && isMarked(l)).map((l) => l.date)
+  );
   const frozenDates = new Set(freezeUsages.map((f) => f.date));
 
   const startDate = getEffectiveStartDate(habit, logs);
@@ -167,6 +179,8 @@ export const calculatePerHabitStreak = (
     if (isHabitDue(habit, cursorStr, logs, referenceDate, startDate)) {
       if (completedDates.has(cursorStr) || frozenDates.has(cursorStr)) {
         streak++;
+      } else if (partialDates.has(cursorStr)) {
+        // Часть отметок дня: стрик держится, но не растёт.
       } else if (lenientToday && i === 0) {
         // Open period: пропускаем только endDate, дальше обрыв строгий.
       } else {
@@ -199,6 +213,9 @@ export const calculatePerHabitMaxStreak = (
   const completedDates = new Set(
     logs.filter((l) => l.habitId === habit.id && l.completed).map((l) => l.date)
   );
+  const partialDates = new Set(
+    logs.filter((l) => l.habitId === habit.id && !l.completed && isMarked(l)).map((l) => l.date)
+  );
   const frozenDates = new Set(freezeUsages.map((f) => f.date));
 
   const startDate = getEffectiveStartDate(habit, logs);
@@ -215,7 +232,7 @@ export const calculatePerHabitMaxStreak = (
       if (completedDates.has(cursorStr) || frozenDates.has(cursorStr)) {
         currentRun++;
         if (currentRun > maxStreak) maxStreak = currentRun;
-      } else {
+      } else if (!partialDates.has(cursorStr)) {
         currentRun = 0;
       }
     }
@@ -254,7 +271,7 @@ export const calculateOverallStreak = (
   if (habits.length === 0) return 0;
   const { maxDays = 365, lenientToday = false } = options;
 
-  const completedDates = new Set(logs.filter((l) => l.completed).map((l) => l.date));
+  const completedDates = new Set(logs.filter(isMarked).map((l) => l.date));
   const frozenDates = new Set(freezeUsages.map((f) => f.date));
 
   // Precompute effective start dates для каждой привычки. Если у привычки
@@ -349,7 +366,7 @@ export const countConsecutiveMissedDays = (
   todayDate: string,
   maxDays: number = 60
 ): number => {
-  const completedDates = new Set(logs.filter((l) => l.completed).map((l) => l.date));
+  const completedDates = new Set(logs.filter(isMarked).map((l) => l.date));
   const frozenDates = new Set(freezeUsages.map((f) => f.date));
 
   let missed = 0;
@@ -387,8 +404,9 @@ export const countHabitConsecutiveMissedDueDays = (
 ): number => {
   if (!habit.isActive) return 0;
 
+  // День с частью отметок — не пропуск.
   const completedDates = new Set(
-    logs.filter((l) => l.habitId === habit.id && l.completed).map((l) => l.date)
+    logs.filter((l) => l.habitId === habit.id && isMarked(l)).map((l) => l.date)
   );
   const startDate = getEffectiveStartDate(habit, logs);
 
@@ -430,7 +448,7 @@ export const shouldAutoApplyFreeze = (
 
   // Отметка любой привычки, в том числе удалённой, уже держит стрик за этот
   // день (см. calculateOverallStreak) — заморозка не нужна.
-  return !logs.some((l) => l.date === yesterday && l.completed);
+  return !logs.some((l) => l.date === yesterday && isMarked(l));
 };
 
 /**

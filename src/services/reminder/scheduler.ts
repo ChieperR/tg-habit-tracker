@@ -17,6 +17,7 @@ import { sendMorningReminder, sendEveningReminder } from './senders.js';
 import { handleDeliveryError } from './delivery.js';
 import { buildPerHabitReminder } from './textBuilder.js';
 import { nowInTimezone, pickPendingSlots } from './habitReminderSlots.js';
+import { formatDayProgress } from '../../utils/format.js';
 import { shouldAutoApplyFreeze, type StreakHabit, type StreakHabitLog, type StreakFreezeUsage } from '../streak/calculator.js';
 import { autoSpendFreeze } from '../streak/freezeService.js';
 
@@ -117,7 +118,11 @@ export const checkAndSendHabitReminders = async (
       timezoneOffset,
       {
         id: habit.id,
-        name: habit.name,
+        // Привычка на несколько раз в день: в напоминании виден прогресс дня.
+        name:
+          habit.timesPerDay > 1
+            ? `${habit.name} (${formatDayProgress(todayLog?.count ?? 0, todayLog?.target ?? habit.timesPerDay)})`
+            : habit.name,
         emoji: habit.emoji,
         frequencyType: habit.frequencyType,
         frequencyDays: habit.frequencyDays,
@@ -194,7 +199,7 @@ export const autoApplyFreezesForMissedDays = async (): Promise<void> => {
           isActive: true,
           deletedDate: true,
           logs: {
-            select: { habitId: true, date: true, completed: true },
+            select: { habitId: true, date: true, completed: true, count: true, target: true },
           },
         },
       },
