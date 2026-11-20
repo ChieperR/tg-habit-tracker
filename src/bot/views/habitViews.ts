@@ -1,5 +1,6 @@
 import { InlineKeyboard } from 'grammy';
-import { createHabitDetailsKeyboard, createHabitRemindersKeyboard } from '../keyboards/index.js';
+import { createHabitDetailsKeyboard, createHabitRemindersKeyboard, createTimesPerDayKeyboard } from '../keyboards/index.js';
+import { MAX_TIMES_PER_DAY } from '../../services/habitService.js';
 import { formatScheduleText } from '../../utils/format.js';
 import { escapeMarkdown } from '../../utils/telegram.js';
 import { MAX_HABIT_REMINDERS } from '../../services/reminder/habitReminderSlots.js';
@@ -20,6 +21,7 @@ type ViewHabit = {
   frequencyType: string;
   frequencyDays: number;
   weekdays: string | null;
+  timesPerDay: number;
 };
 
 /** Строка про напоминания в деталях привычки. */
@@ -41,8 +43,35 @@ export const buildHabitDetailsView = (habit: ViewHabit, times: string[]): HabitV
     `📅 Расписание: _${formatScheduleText(habit)}_`,
     formatReminderLine(times),
   ].join('\n'),
-  keyboard: createHabitDetailsKeyboard({ habitId: habit.id, reminderCount: times.length }),
+  keyboard: createHabitDetailsKeyboard({
+    habitId: habit.id,
+    reminderCount: times.length,
+    timesPerDay: habit.timesPerDay,
+  }),
 });
+
+/**
+ * Экран «сколько раз в день».
+ * @param habit - Привычка
+ * @param reminderCount - Сколько у привычки напоминаний
+ */
+export const buildTimesPerDayView = (
+  habit: Pick<ViewHabit, 'id' | 'name' | 'emoji' | 'timesPerDay'>,
+  reminderCount: number
+): HabitView => {
+  const lines = [
+    `🔁 *Сколько раз в день: ${habit.emoji} ${escapeMarkdown(habit.name)}*`,
+    '',
+    'Если привычку выполняешь несколько раз за день, например таблетки утром и вечером, выбери сколько. Каждое нажатие ✅ добавляет одну отметку, день засчитывается, когда отмечены все.',
+  ];
+  if (habit.timesPerDay > 1 && reminderCount < habit.timesPerDay) {
+    lines.push('', 'Чтобы бот напоминал про каждый раз, добавь напоминания в «⏰ Изменить напоминания».');
+  }
+  return {
+    text: lines.join('\n'),
+    keyboard: createTimesPerDayKeyboard(habit.id, habit.timesPerDay, MAX_TIMES_PER_DAY),
+  };
+};
 
 /**
  * Экран списка напоминаний привычки.

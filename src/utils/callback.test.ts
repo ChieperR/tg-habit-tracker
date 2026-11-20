@@ -23,6 +23,8 @@ describe('serializeCallback / parseCallback round-trip', () => {
     { type: 'habit_details', habitId: 7 },
     { type: 'habit_rename', habitId: 7 },
     { type: 'habit_emoji', habitId: 7 },
+    { type: 'habit_times', habitId: 7 },
+    { type: 'habit_times_set', habitId: 7, times: 3 },
     { type: 'habit_reminders', habitId: 7 },
     { type: 'habit_reminder_set', habitId: 7 },
     { type: 'habit_reminder_change', reminderId: 12 },

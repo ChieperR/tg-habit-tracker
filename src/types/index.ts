@@ -63,6 +63,12 @@ export type HabitWithTodayStatus = {
   completedToday: boolean;
   /** Нужно ли выполнять сегодня (по расписанию) */
   isDueToday: boolean;
+  /** Сколько раз в день нужно выполнять */
+  timesPerDay: number;
+  /** Сколько отметок за день уже есть */
+  doneCount: number;
+  /** Сколько отметок нужно за этот день (у дня с отметками — из лога) */
+  targetToday: number;
   /** Времена персональных напоминаний (HH:MM) по возрастанию */
   reminderTimes: string[];
 };
@@ -160,6 +166,8 @@ export type CallbackAction =
   | { type: 'habit_details'; habitId: number }
   | { type: 'habit_rename'; habitId: number }
   | { type: 'habit_emoji'; habitId: number }
+  | { type: 'habit_times'; habitId: number }
+  | { type: 'habit_times_set'; habitId: number; times: number }
   | { type: 'stats' }
   | { type: 'weekly_show'; weekStart?: string }
   | { type: 'weekly_prev'; weekStart: string }

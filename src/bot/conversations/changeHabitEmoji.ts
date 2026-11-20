@@ -97,7 +97,11 @@ export const changeHabitEmojiConversation = async (
     `✅ Новый эмодзи: *${escapeMarkdown(`${emoji} ${fresh?.name ?? habit.name}`)}*`,
     {
       parse_mode: 'Markdown',
-      reply_markup: createHabitDetailsKeyboard({ habitId, reminderCount: reminders.length }),
+      reply_markup: createHabitDetailsKeyboard({
+        habitId,
+        reminderCount: reminders.length,
+        timesPerDay: fresh?.timesPerDay ?? habit.timesPerDay,
+      }),
     }
   );
 };

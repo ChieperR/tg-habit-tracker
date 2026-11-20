@@ -152,6 +152,7 @@ const main = async (): Promise<void> => {
     ),
     isActive: h.isActive,
     graduated: h.graduated,
+    timesPerDay: h.timesPerDay,
     deletedDate: h.deletedDate,
     createdAt: iso(h.createdAt),
   }));
@@ -160,6 +161,8 @@ const main = async (): Promise<void> => {
     hid_hash: hashId('h', l.habitId),
     date: l.date,
     completed: l.completed,
+    count: l.count,
+    target: l.target,
     markedAt: iso(l.markedAt),
   }));
 

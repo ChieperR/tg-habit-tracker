@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatScheduleText } from './format.js';
+import { formatScheduleText, formatTimesPerDay, formatDayProgress } from './format.js';
 
 describe('formatScheduleText', () => {
   it('daily → ежедневно', () => {
@@ -24,5 +24,22 @@ describe('formatScheduleText', () => {
 
   it('неизвестный тип → пустая строка', () => {
     expect(formatScheduleText({ frequencyType: 'whatever', frequencyDays: 1, weekdays: null })).toBe('');
+  });
+});
+
+describe('несколько раз в день', () => {
+  it('formatTimesPerDay склоняет', () => {
+    expect(formatTimesPerDay(2)).toBe('2 раза в день');
+    expect(formatTimesPerDay(5)).toBe('5 раз в день');
+  });
+
+  it('formatDayProgress пустой для одного раза', () => {
+    expect(formatDayProgress(1, 1)).toBe('');
+    expect(formatDayProgress(1, 2)).toBe('1/2');
+  });
+
+  it('formatScheduleText дописывает число раз', () => {
+    expect(formatScheduleText({ frequencyType: 'daily', frequencyDays: 1, weekdays: null, timesPerDay: 2 })).toBe('ежедневно, 2 раза в день');
+    expect(formatScheduleText({ frequencyType: 'daily', frequencyDays: 1, weekdays: null, timesPerDay: 1 })).toBe('ежедневно');
   });
 });

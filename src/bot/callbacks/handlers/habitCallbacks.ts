@@ -3,13 +3,13 @@ import { BotContext } from '../../../types/index.js';
 import { serializeCallback } from '../../../utils/callback.js';
 import { safeEditMessage, safeAnswerCallback } from '../../../utils/telegram.js';
 import { findOrCreateUser } from '../../../services/userService.js';
-import { toggleHabitCompletion, deleteHabit, graduateHabit, getHabitById, getHabitLog, getUserHabitsWithTodayStatus, getUserHabitsWithDateStatus, getHabitReminders, removeHabitReminder } from '../../../services/habitService.js';
-import { buildHabitDetailsView, buildHabitRemindersView } from '../../views/habitViews.js';
+import { markHabit, type MarkMode, setHabitTimesPerDay, deleteHabit, graduateHabit, getHabitById, getUserHabitsWithTodayStatus, getUserHabitsWithDateStatus, getHabitReminders, removeHabitReminder } from '../../../services/habitService.js';
+import { buildHabitDetailsView, buildHabitRemindersView, buildTimesPerDayView } from '../../views/habitViews.js';
 import { trackEvent } from '../../../services/analyticsService.js';
 import { showHabitsList } from '../../commands/habits.js';
 import { createEveningChecklistKeyboard, createDeleteConfirmKeyboard, createHabitCreatedKeyboard, createGraduateConfirmKeyboard, createGraduatedKeyboard } from '../../keyboards/index.js';
 import { getGraduatedHabitSummary } from '../../../services/statsService.js';
-import { formatScheduleText } from '../../../utils/format.js';
+import { formatDayProgress, formatScheduleText, formatTimesPerDay } from '../../../utils/format.js';
 import { escapeMarkdown } from '../../../utils/telegram.js';
 import { prisma } from '../../../db/index.js';
 import { formatYMDUtc, getTodayDate, DEFAULT_TIMEZONE_OFFSET } from '../../../utils/date.js';
@@ -71,25 +71,31 @@ export const handleHabitToggle = async (
     await safeAnswerCallback(ctx, habit.graduated ? '🏆 Привычка внедрена' : '🗑 Привычка удалена');
     return;
   }
-  // «✅ Выполнено» в персональном напоминании только ставит отметку: за день
+  // «✅ Выполнено» в персональном напоминании только добавляет отметку: за день
   // может прийти несколько напоминаний, и кнопка в одном из них не должна
   // снимать отметку, поставленную в другом. Снимает — «↩️ Отменить».
-  const alreadyDone =
-    source === 'habit_reminder' && (await getHabitLog(habitId, targetDate))?.completed === true;
-  const newStatus = alreadyDone
-    ? true
-    : await toggleHabitCompletion(habitId, timezoneOffset, effectiveDate);
-  const statusText = alreadyDone ? '✅ Уже отмечено' : newStatus ? '✅ Выполнено!' : '⬜ Отменено';
+  const mode: MarkMode =
+    source === 'habit_reminder' ? 'add' : source === 'habit_reminder_undo' ? 'remove' : 'cycle';
+  const mark = await markHabit(habitId, habit.timesPerDay, timezoneOffset, effectiveDate, mode);
+  const newStatus = mark.completed;
+  const progress = formatDayProgress(mark.count, mark.target);
+  const statusText = !mark.changed
+    ? mark.completed ? '✅ Уже отмечено' : '⬜ Отметок нет'
+    : mark.completed
+      ? '✅ Выполнено!'
+      : mark.count > 0
+        ? mode === 'remove' ? `↩️ Отменено: ${progress}` : `☑️ Отмечено ${progress}`
+        : '⬜ Отменено';
 
-  // Трекаем check-in (fire-and-forget)
-  if (newStatus && !alreadyDone) {
-    void trackEvent(user.id, 'checkin', { habitId, source: source ?? 'habit_list' });
+  // Трекаем check-in (fire-and-forget): каждая добавленная отметка.
+  if (mark.changed && mark.count > 0 && (mode !== 'remove')) {
+    void trackEvent(user.id, 'checkin', { habitId, source: source ?? 'habit_list', ...(mark.target > 1 ? { count: mark.count, target: mark.target } : {}) });
   }
 
   await safeAnswerCallback(ctx, statusText);
 
-  // Streak-machinery: milestone delivery + freeze refund + freeze earn (только при отметке).
-  if (newStatus && !alreadyDone) {
+  // Streak-machinery: milestone delivery + freeze refund + freeze earn — когда день стал выполненным.
+  if (mark.completed && !mark.wasCompleted) {
     void processStreakSideEffects(
       ctx,
       user.id,
@@ -105,17 +111,24 @@ export const handleHabitToggle = async (
     const safeName = escapeMarkdown(habit.name);
     const doneText = newStatus
       ? `✅ *${habit.emoji} ${safeName}* — выполнено!`
-      : `⏰ Пришло время: *${habit.emoji} ${safeName}*`;
+      : mark.count > 0
+        ? `☑️ *${habit.emoji} ${safeName}* — отмечено ${progress}`
+        : `⏰ Пришло время: *${habit.emoji} ${safeName}*`;
 
-    const toggleKeyboard = new InlineKeyboard().text(
-      newStatus ? '↩️ Отменить' : '✅ Выполнено',
-      serializeCallback({
-        type: 'habit_toggle',
-        habitId,
-        source: newStatus ? 'habit_reminder_undo' : 'habit_reminder',
-      })
-    );
-    if (newStatus) {
+    const toggleKeyboard = new InlineKeyboard();
+    if (mark.count > 0) {
+      toggleKeyboard.text(
+        '↩️ Отменить',
+        serializeCallback({ type: 'habit_toggle', habitId, source: 'habit_reminder_undo' })
+      );
+    }
+    if (!newStatus) {
+      toggleKeyboard.text(
+        mark.count > 0 ? '✅ Ещё раз' : '✅ Выполнено',
+        serializeCallback({ type: 'habit_toggle', habitId, source: 'habit_reminder' })
+      );
+    }
+    if (mark.count > 0) {
       toggleKeyboard
         .row()
         .text('📝 Мои привычки', serializeCallback({ type: 'habits_list' }));
@@ -156,7 +169,8 @@ export const handleHabitToggle = async (
       backdatedMsg += 'Отметь выполненные привычки:\n\n';
       for (const h of dueHabits) {
         const status = h.completedToday ? '✅' : '⬜';
-        backdatedMsg += `${status} ${h.emoji} ${escapeMarkdown(h.name)}\n`;
+        const dayProgress = formatDayProgress(h.doneCount, h.targetToday);
+        backdatedMsg += `${status} ${h.emoji} ${escapeMarkdown(h.name)}${dayProgress ? ` ${dayProgress}` : ''}\n`;
       }
       await safeEditMessage(ctx, backdatedMsg, {
         parse_mode: 'Markdown',
@@ -412,6 +426,47 @@ const renderHabitReminders = async (
   const view = reminders.length > 0
     ? buildHabitRemindersView(habit, reminders)
     : buildHabitDetailsView(habit, []);
+  await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', reply_markup: view.keyboard });
+};
+
+/**
+ * Показывает экран «сколько раз в день»
+ */
+export const handleHabitTimes = async (ctx: BotContext, habitId: number): Promise<void> => {
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+
+  const user = await findOrCreateUser(telegramId);
+  const habit = await getHabitById(habitId);
+  if (!habit || habit.userId !== user.id || !habit.isActive) {
+    await safeAnswerCallback(ctx, '❌ Привычка не найдена');
+    return;
+  }
+
+  await safeAnswerCallback(ctx);
+  const reminders = await getHabitReminders(habitId);
+  const view = buildTimesPerDayView(habit, reminders.length);
+  await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', reply_markup: view.keyboard });
+};
+
+/**
+ * Меняет «сколько раз в день» и возвращает к деталям привычки
+ */
+export const handleHabitTimesSet = async (ctx: BotContext, habitId: number, times: number): Promise<void> => {
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+
+  const user = await findOrCreateUser(telegramId);
+  const ok = await setHabitTimesPerDay(habitId, user.id, times, user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET);
+  const habit = ok ? await getHabitById(habitId) : null;
+  if (!habit) {
+    await safeAnswerCallback(ctx, '❌ Привычка не найдена');
+    return;
+  }
+
+  await safeAnswerCallback(ctx, habit.timesPerDay > 1 ? `🔁 Теперь ${formatTimesPerDay(habit.timesPerDay)}` : '🔁 Теперь раз в день');
+  const reminders = await getHabitReminders(habitId);
+  const view = buildHabitDetailsView(habit, reminders.map((r) => r.time));
   await safeEditMessage(ctx, view.text, { parse_mode: 'Markdown', reply_markup: view.keyboard });
 };
 

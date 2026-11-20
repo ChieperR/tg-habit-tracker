@@ -3,10 +3,10 @@ import type { BotContext } from '../../../types/index.js';
 import { handleHabitToggle } from './habitCallbacks.js';
 
 const state = vi.hoisted(() => ({
-  habit: null as null | { id: number; userId: number; isActive: boolean; deletedDate: string | null; graduated?: boolean; name: string; emoji: string },
+  habit: null as null | { id: number; userId: number; isActive: boolean; deletedDate: string | null; graduated?: boolean; name: string; emoji: string; timesPerDay?: number },
   toggles: [] as unknown[][],
   answers: [] as string[],
-  log: null as null | { completed: boolean },
+  log: null as null | { count: number; target: number; completed: boolean },
 }));
 
 vi.mock('../../../services/userService.js', () => ({
@@ -14,16 +14,25 @@ vi.mock('../../../services/userService.js', () => ({
 }));
 vi.mock('../../../services/habitService.js', () => ({
   getHabitById: async () => state.habit,
-  toggleHabitCompletion: async (...args: unknown[]) => {
-    state.toggles.push(args);
-    return true;
+  // Та же арифметика, что в настоящем markHabit, но лог дня — в state.log.
+  markHabit: async (habitId: number, timesPerDay: number, tz: number, date: string | undefined, mode: string) => {
+    state.toggles.push([habitId, tz, date, mode]);
+    const target = state.log?.target ?? timesPerDay;
+    const current = state.log?.count ?? 0;
+    const wasCompleted = state.log?.completed ?? false;
+    const count = mode === 'add' ? Math.min(current + 1, target)
+      : mode === 'remove' ? Math.max(current - 1, 0)
+      : current >= target ? 0 : current + 1;
+    const completed = count >= target;
+    const changed = count !== current || completed !== wasCompleted;
+    state.log = { count, target, completed };
+    return { count, target, completed, wasCompleted, changed };
   },
   deleteHabit: async () => true,
   graduateHabit: async () => true,
   getUserHabitsWithTodayStatus: async () => [],
   getUserHabitsWithDateStatus: async () => [],
   getHabitReminders: async () => [],
-  getHabitLog: async () => state.log,
   removeHabitReminder: async () => null,
 }));
 vi.mock('../../../utils/telegram.js', () => ({
@@ -65,18 +74,19 @@ describe('handleHabitToggle: удалённая привычка', () => {
 
   it('«✅ Выполнено» во втором напоминании за день не снимает уже поставленную отметку', async () => {
     state.habit = { id: 6, userId: 1, isActive: true, deletedDate: null, name: 'Чтение', emoji: '📚' };
-    state.log = { completed: true };
+    state.log = { count: 1, target: 1, completed: true };
     await handleHabitToggle(ctx, 6, 'habit_reminder');
-    expect(state.toggles).toEqual([]);
     expect(state.answers).toEqual(['✅ Уже отмечено']);
+    expect(state.log).toEqual({ count: 1, target: 1, completed: true });
     state.log = null;
   });
 
   it('«↩️ Отменить» в напоминании снимает отметку', async () => {
     state.habit = { id: 6, userId: 1, isActive: true, deletedDate: null, name: 'Чтение', emoji: '📚' };
-    state.log = { completed: true };
+    state.log = { count: 1, target: 1, completed: true };
     await handleHabitToggle(ctx, 6, 'habit_reminder_undo');
-    expect(state.toggles).toEqual([[6, 180, '2026-01-10']]);
+    expect(state.toggles).toEqual([[6, 180, '2026-01-10', 'remove']]);
+    expect(state.log).toEqual({ count: 0, target: 1, completed: false });
     state.log = null;
   });
 
@@ -90,6 +100,46 @@ describe('handleHabitToggle: удалённая привычка', () => {
   it('активная привычка из старого напоминания отмечается за день сообщения', async () => {
     state.habit = { id: 6, userId: 1, isActive: true, deletedDate: null, name: 'Чтение', emoji: '📚' };
     await handleHabitToggle(ctx, 6, 'habit_reminder');
-    expect(state.toggles).toEqual([[6, 180, '2026-01-10']]);
+    expect(state.toggles).toEqual([[6, 180, '2026-01-10', 'add']]);
+    state.log = null;
+  });
+});
+
+describe('handleHabitToggle: несколько раз в день', () => {
+  beforeEach(() => {
+    state.toggles.length = 0;
+    state.answers.length = 0;
+    state.log = null;
+    state.habit = { id: 8, userId: 1, isActive: true, deletedDate: null, name: 'Таблетки', emoji: '💊', timesPerDay: 2 };
+  });
+
+  it('два напоминания: каждое «✅ Выполнено» добавляет отметку, третье ничего не меняет', async () => {
+    await handleHabitToggle(ctx, 8, 'habit_reminder');
+    await handleHabitToggle(ctx, 8, 'habit_reminder');
+    await handleHabitToggle(ctx, 8, 'habit_reminder');
+    expect(state.answers).toEqual(['☑️ Отмечено 1/2', '✅ Выполнено!', '✅ Уже отмечено']);
+    expect(state.log).toEqual({ count: 2, target: 2, completed: true });
+  });
+
+  it('«↩️ Отменить» снимает одну отметку', async () => {
+    state.log = { count: 2, target: 2, completed: true };
+    await handleHabitToggle(ctx, 8, 'habit_reminder_undo');
+    expect(state.answers).toEqual(['↩️ Отменено: 1/2']);
+    expect(state.log).toEqual({ count: 1, target: 2, completed: false });
+  });
+
+  it('кнопка в списке: 0 → 1 → 2 → сброс в 0', async () => {
+    await handleHabitToggle(ctx, 8);
+    await handleHabitToggle(ctx, 8);
+    await handleHabitToggle(ctx, 8);
+    expect(state.answers).toEqual(['☑️ Отмечено 1/2', '✅ Выполнено!', '⬜ Отменено']);
+    expect(state.log).toEqual({ count: 0, target: 2, completed: false });
+  });
+
+  it('у дня уже свой target: смена числа раз на привычке не меняет, сколько нужно за этот день', async () => {
+    state.habit = { ...state.habit!, timesPerDay: 3 };
+    state.log = { count: 1, target: 2, completed: false };
+    await handleHabitToggle(ctx, 8, undefined, '2026-01-09');
+    expect(state.log).toEqual({ count: 2, target: 2, completed: true });
   });
 });

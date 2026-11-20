@@ -14,6 +14,7 @@ import { prisma } from '../../db/index.js';
 import { HabitWithTodayStatus } from '../../types/index.js';
 import { getTodayDate } from '../../utils/date.js';
 import { escapeMarkdown } from '../../utils/telegram.js';
+import { formatDayProgress } from '../../utils/format.js';
 import {
   NORMAL_MORNING_HEADERS,
   NORMAL_MORNING_FOOTERS,
@@ -349,7 +350,8 @@ export const buildEveningReminder = async (
 
   for (const habit of todayHabits) {
     const status = habit.completedToday ? '✅' : '⬜';
-    message += `${status} ${habit.emoji} ${escapeMarkdown(habit.name)}\n`;
+    const progress = formatDayProgress(habit.doneCount, habit.targetToday);
+    message += `${status} ${habit.emoji} ${escapeMarkdown(habit.name)}${progress ? ` ${progress}` : ''}\n`;
   }
 
   return message;

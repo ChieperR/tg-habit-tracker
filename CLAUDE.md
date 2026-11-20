@@ -22,6 +22,7 @@ Users can create habits with flexible schedules (daily / every N days / specific
 - **Привычки**: создание (wizard с эмодзи, расписанием), переименование и смена эмодзи в деталях привычки, завершение как внедрённой (`graduated`), мягкое удаление (`isActive=false`)
 - **Расписание привычки**: daily / interval (раз в N дней) / weekdays (конкретные дни недели)
 - **Отметка выполнения**: inline-кнопка `✅` в `/habits`, в evening reminder (чеклист), в per-habit reminder, через weekly calendar
+- **Несколько раз в день**: `Habit.timesPerDay` (1–5), кнопка «🔁 Раз в день» в деталях; каждое нажатие — одна отметка (`markHabit`), прогресс «1/2», день выполнен при `count >= target`
 - **Backdating отметок до 7 дней** (PR #4) — юзер может отметить за прошлый день через weekly calendar
 - **Стрики per-habit** (HabitLog + unique constraint `[habitId, date]`) — отображаются в `/stats`
 - **Три типа напоминаний** с РАЗНЫМИ ролями (не путать!):
@@ -128,7 +129,8 @@ prisma/
 
 ### `HabitLog`
 - `date: String` — `YYYY-MM-DD`
-- `completed: Boolean`
+- `completed: Boolean` — день выполнен (`count >= target`); стрики, неделя, /stats смотрят только на него
+- `count: Int` — сколько отметок за день; `target: Int` — сколько было нужно в этот день (timesPerDay на момент первой отметки, у сегодняшнего пересчитывается при смене числа раз)
 - Unique constraint `[habitId, date]` — one record per habit per day (upsert pattern)
 
 ---
@@ -251,7 +253,8 @@ Model fields in schema: use `///` triple-slash comments (Prisma convention)
 ### Callback Actions (all types in `types/index.ts`)
 | Type | Description |
 |------|-------------|
-| `habit_toggle` | Mark habit done/undone for today |
+| `habit_toggle` | One mark (`markHabit`): list/checklist cycle +1…N→0, `hr` adds, `hu` removes one |
+| `habit_times` / `habit_times_set` | «Сколько раз в день» screen / set N |
 | `habit_add` | Start add-habit conversation |
 | `habit_delete` / `habit_confirm_delete` | Two-step delete |
 | `habit_details` | Habit detail view (reminders, name/emoji, graduate, delete) |

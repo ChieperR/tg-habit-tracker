@@ -3,6 +3,7 @@ import { differenceInDays, parse } from 'date-fns';
 import { HabitWithTodayStatus } from '../../types/index.js';
 import { serializeCallback } from '../../utils/callback.js';
 import { formatDayLabel, getPrevDate, getNextDate } from '../../utils/date.js';
+import { formatDayProgress } from '../../utils/format.js';
 
 /**
  * Клавиатуры для бота
@@ -45,9 +46,10 @@ export const createHabitsListKeyboard = (
   for (const habit of habits) {
     const status = habit.completedToday ? '✅' : '⬜';
     const dueIndicator = habit.isDueToday ? '' : ' 💤';
+    const progress = formatDayProgress(habit.doneCount, habit.targetToday);
 
     keyboard.text(
-      `${status} ${habit.emoji}${dueIndicator}`,
+      `${status} ${habit.emoji}${progress ? ` ${progress}` : ''}${dueIndicator}`,
       serializeCallback({
         type: 'habit_toggle',
         habitId: habit.id,
@@ -108,6 +110,21 @@ export const createDeleteConfirmKeyboard = (habitId: number): InlineKeyboard => 
 };
 
 /**
+ * Клавиатура выбора «сколько раз в день»: 1…max, текущее отмечено.
+ * @param habitId - ID привычки
+ * @param current - Текущее число раз
+ * @param max - Максимум
+ * @returns Inline клавиатура
+ */
+export const createTimesPerDayKeyboard = (habitId: number, current: number, max: number): InlineKeyboard => {
+  const keyboard = new InlineKeyboard();
+  for (let n = 1; n <= max; n++) {
+    keyboard.text(n === current ? `✅ ${n}` : String(n), serializeCallback({ type: 'habit_times_set', habitId, times: n }));
+  }
+  return keyboard.row().text('◀️ Назад', serializeCallback({ type: 'habit_details', habitId }));
+};
+
+/**
  * Клавиатура подтверждения «привычка внедрена»
  * @param habitId - ID привычки
  * @returns Inline клавиатура
@@ -138,10 +155,11 @@ export const createEveningChecklistKeyboard = (habits: HabitWithTodayStatus[]): 
 
   for (const habit of habits) {
     const status = habit.completedToday ? '✅' : '⬜';
-    // На кнопке только статус и эмодзи, полное название уже в тексте сообщения
+    const progress = formatDayProgress(habit.doneCount, habit.targetToday);
+    // На кнопке только статус, эмодзи и прогресс дня, полное название уже в тексте сообщения
     keyboard
       .text(
-        `${status} ${habit.emoji}`,
+        `${status} ${habit.emoji}${progress ? ` ${progress}` : ''}`,
         serializeCallback({ type: 'habit_toggle', habitId: habit.id, source: 'evening_reminder' })
       )
       .row();
@@ -278,6 +296,8 @@ export type HabitDetailsKeyboardParams = {
   habitId: number;
   /** Сколько у привычки персональных напоминаний */
   reminderCount: number;
+  /** Сколько раз в день нужно выполнять */
+  timesPerDay: number;
 };
 
 /**
@@ -286,7 +306,7 @@ export type HabitDetailsKeyboardParams = {
  * @returns Inline клавиатура
  */
 export const createHabitDetailsKeyboard = (params: HabitDetailsKeyboardParams): InlineKeyboard => {
-  const { habitId, reminderCount } = params;
+  const { habitId, reminderCount, timesPerDay } = params;
   const keyboard = new InlineKeyboard();
 
   if (reminderCount > 0) {
@@ -300,6 +320,8 @@ export const createHabitDetailsKeyboard = (params: HabitDetailsKeyboardParams): 
   }
 
   keyboard
+    .text(`🔁 Раз в день: ${timesPerDay}`, serializeCallback({ type: 'habit_times', habitId }))
+    .row()
     .text('✏️ Переименовать', serializeCallback({ type: 'habit_rename', habitId }))
     .text('🎨 Сменить эмодзи', serializeCallback({ type: 'habit_emoji', habitId }))
     .row()
