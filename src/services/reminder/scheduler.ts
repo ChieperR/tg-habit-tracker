@@ -14,7 +14,7 @@ import {
 import { serializeCallback } from '../../utils/callback.js';
 import { trackEvent } from '../analyticsService.js';
 import { sendMorningReminder, sendEveningReminder } from './senders.js';
-import { handleDeliveryError } from './delivery.js';
+import { handleDeliveryError, isNetworkError } from './delivery.js';
 import { buildPerHabitReminder } from './textBuilder.js';
 import { nowInTimezone, pickPendingSlots } from './habitReminderSlots.js';
 import { shouldAutoApplyFreeze, type StreakHabit, type StreakHabitLog, type StreakFreezeUsage } from '../streak/calculator.js';
@@ -81,6 +81,7 @@ export const checkAndSendReminders = async (
  * У привычки может быть несколько времён: каждое срабатывает раз в день, если
  * привычка сегодня по расписанию и ещё не отмечена. Если наступило сразу
  * несколько времён (бот лежал), уходит одно сообщение, все они помечаются.
+ * При сетевой ошибке времена не помечаются — следующий тик повторит отправку.
  */
 export const checkAndSendHabitReminders = async (
   bot: Bot<BotContext>
@@ -138,6 +139,10 @@ export const checkAndSendHabitReminders = async (
       });
       void trackEvent(habit.userId, 'reminder_sent', { type: 'habit', habitId: habit.id, time: slotTime });
     } catch (error) {
+      if (isNetworkError(error)) {
+        console.warn(`[reminder] Сеть недоступна, напоминание привычки ${habit.id} повторю на следующем тике: ${(error as Error).message}`);
+        continue;
+      }
       const handled = handleDeliveryError(error, habit.user.telegramId, habit.userId);
       if (!handled) {
         console.error(`[reminder] Ошибка напоминания привычки ${habit.id} для ${habit.user.telegramId}:`, error);

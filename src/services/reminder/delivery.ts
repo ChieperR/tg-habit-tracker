@@ -1,3 +1,4 @@
+import { HttpError } from 'grammy';
 import { trackEvent } from '../analyticsService.js';
 
 /** Описания ошибок Telegram, при которых не нужно повторять отправку */
@@ -18,6 +19,15 @@ const blockedTrackedThisRun = new Set<number>();
 export const resetBlockedTracking = (): void => {
   blockedTrackedThisRun.clear();
 };
+
+/**
+ * Сетевая ошибка: запрос не дошёл до Telegram или ответ не вернулся (DNS,
+ * таймаут, обрыв соединения). Телеграм сообщение не принял, поэтому
+ * напоминание не считается отправленным и уходит на следующем минутном тике.
+ * Ошибки с ответом Telegram API (`GrammyError`: блок, 400 и т.п.) сюда не
+ * относятся — их повтор каждую минуту ничего не изменит.
+ */
+export const isNetworkError = (error: unknown): boolean => error instanceof HttpError;
 
 /**
  * Проверяет, является ли ошибка Telegram штатной (юзер заблокировал/удалился).
