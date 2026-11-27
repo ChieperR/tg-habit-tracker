@@ -86,6 +86,11 @@ describe('персональное напоминание: сбой отправ
     expect(state.updateMany).toEqual([]);
   });
 
+  it('таймаут запроса (grammY кидает обычный Error) — тоже повтор', async () => {
+    await checkAndSendHabitReminders(botFailingWith(new Error("Request to 'sendMessage' timed out after 500 seconds")));
+    expect(state.updateMany).toEqual([]);
+  });
+
   it('ответ Telegram с ошибкой (400) — время помечается, чтобы не слать каждую минуту', async () => {
     await checkAndSendHabitReminders(botFailingWith(apiError("Bad Request: can't parse entities")));
     expect(state.updateMany).toHaveLength(1);
