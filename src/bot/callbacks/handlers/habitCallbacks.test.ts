@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   answers: [] as string[],
   log: null as null | { completed: boolean },
   timezoneOffset: 180 as number | null,
+  toggleResult: true,
 }));
 
 vi.mock('../../../services/userService.js', () => ({
@@ -17,7 +18,7 @@ vi.mock('../../../services/habitService.js', () => ({
   getHabitById: async () => state.habit,
   toggleHabitCompletion: async (...args: unknown[]) => {
     state.toggles.push(args);
-    return true;
+    return state.toggleResult;
   },
   deleteHabit: async () => true,
   graduateHabit: async () => true,
@@ -99,10 +100,13 @@ describe('handleHabitToggle: часовой пояс не указан', () => {
   beforeEach(() => {
     state.toggles.length = 0;
     state.timezoneOffset = null;
+    // Без отметки не запускаются фоновые начисления с настоящей базой.
+    state.toggleResult = false;
     state.habit = { id: 6, userId: 1, isActive: true, deletedDate: null, name: 'Чтение', emoji: '📚' };
   });
   afterEach(() => {
     state.timezoneOffset = 180;
+    state.toggleResult = true;
     vi.useRealTimers();
   });
 

@@ -49,14 +49,11 @@ describe('список привычек: часовой пояс не указа
     vi.useRealTimers();
   });
 
-  it('/habits показывает сегодня по Москве', async () => {
-    await handleHabits(ctx);
-    expect(state.habitsTz).toEqual([180]);
-    expect(state.keyboardDates).toEqual([['2026-01-11', '2026-01-11']]);
-  });
-
-  it('список из кнопки показывает сегодня по Москве', async () => {
-    await showHabitsList(ctx);
+  it.each([
+    ['/habits', handleHabits],
+    ['список из кнопки', showHabitsList],
+  ])('%s показывает сегодня по Москве', async (_name, show) => {
+    await show(ctx);
     expect(state.habitsTz).toEqual([180]);
     expect(state.keyboardDates).toEqual([['2026-01-11', '2026-01-11']]);
   });

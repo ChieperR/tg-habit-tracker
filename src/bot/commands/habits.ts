@@ -44,7 +44,7 @@ const buildHabitsMessage = (
 
   message += 'Нажми на кнопку, чтобы отметить выполнение:';
 
-  const banner = getChangelogBanner(user, user.timezoneOffset ?? 180);
+  const banner = getChangelogBanner(user, user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET);
   if (banner) {
     message += banner;
   }
