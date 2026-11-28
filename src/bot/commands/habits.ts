@@ -3,7 +3,7 @@ import { findOrCreateUser } from '../../services/userService.js';
 import { getUserHabitsWithTodayStatus, getUserHabitsWithDateStatus } from '../../services/habitService.js';
 import { createHabitsListKeyboard, createMainMenuKeyboard } from '../keyboards/index.js';
 import { safeEditMessage, escapeMarkdown } from '../../utils/telegram.js';
-import { getTodayDate, formatDayHeader } from '../../utils/date.js';
+import { getTodayDate, formatDayHeader, DEFAULT_TIMEZONE_OFFSET } from '../../utils/date.js';
 import { getChangelogBanner } from '../../changelog.js';
 import { trackEvent } from '../../services/analyticsService.js';
 
@@ -44,7 +44,7 @@ const buildHabitsMessage = (
 
   message += 'Нажми на кнопку, чтобы отметить выполнение:';
 
-  const banner = getChangelogBanner(user, user.timezoneOffset ?? 180);
+  const banner = getChangelogBanner(user, user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET);
   if (banner) {
     message += banner;
   }
@@ -67,7 +67,7 @@ export const handleHabits = async (ctx: BotContext): Promise<void> => {
   const user = await findOrCreateUser(telegramId);
   ctx.session.dbUserId = user.id;
 
-  const timezoneOffset = user.timezoneOffset ?? 0;
+  const timezoneOffset = user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET;
   const todayDate = getTodayDate(timezoneOffset);
   const habits = await getUserHabitsWithTodayStatus(user.id, timezoneOffset);
   void trackEvent(user.id, 'view_habits');
@@ -105,7 +105,7 @@ export const showHabitsList = async (ctx: BotContext, date?: string): Promise<vo
   }
 
   const user = await findOrCreateUser(telegramId);
-  const timezoneOffset = user.timezoneOffset ?? 0;
+  const timezoneOffset = user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET;
   const todayDate = getTodayDate(timezoneOffset);
   const viewDate = date ?? todayDate;
   const isToday = viewDate === todayDate;

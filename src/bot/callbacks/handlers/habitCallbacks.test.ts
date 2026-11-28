@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { BotContext } from '../../../types/index.js';
 import { handleHabitToggle } from './habitCallbacks.js';
 
@@ -7,16 +7,18 @@ const state = vi.hoisted(() => ({
   toggles: [] as unknown[][],
   answers: [] as string[],
   log: null as null | { completed: boolean },
+  timezoneOffset: 180 as number | null,
+  toggleResult: true,
 }));
 
 vi.mock('../../../services/userService.js', () => ({
-  findOrCreateUser: async () => ({ id: 1, telegramId: 100n, timezoneOffset: 180, freezeEnabled: true }),
+  findOrCreateUser: async () => ({ id: 1, telegramId: 100n, timezoneOffset: state.timezoneOffset, freezeEnabled: true }),
 }));
 vi.mock('../../../services/habitService.js', () => ({
   getHabitById: async () => state.habit,
   toggleHabitCompletion: async (...args: unknown[]) => {
     state.toggles.push(args);
-    return true;
+    return state.toggleResult;
   },
   deleteHabit: async () => true,
   graduateHabit: async () => true,
@@ -91,5 +93,37 @@ describe('handleHabitToggle: удалённая привычка', () => {
     state.habit = { id: 6, userId: 1, isActive: true, deletedDate: null, name: 'Чтение', emoji: '📚' };
     await handleHabitToggle(ctx, 6, 'habit_reminder');
     expect(state.toggles).toEqual([[6, 180, '2026-01-10']]);
+  });
+});
+
+describe('handleHabitToggle: часовой пояс не указан', () => {
+  beforeEach(() => {
+    state.toggles.length = 0;
+    state.timezoneOffset = null;
+    // Без отметки не запускаются фоновые начисления с настоящей базой.
+    state.toggleResult = false;
+    state.habit = { id: 6, userId: 1, isActive: true, deletedDate: null, name: 'Чтение', emoji: '📚' };
+  });
+  afterEach(() => {
+    state.timezoneOffset = 180;
+    state.toggleResult = true;
+    vi.useRealTimers();
+  });
+
+  it('отметка из напоминания в 00:30 МСК идёт на день сообщения по Москве', async () => {
+    // 11.01 00:30 МСК = 10.01 21:30 UTC
+    const night = {
+      ...ctx,
+      callbackQuery: { message: { date: Date.UTC(2026, 0, 10, 21, 30) / 1000 } },
+    } as unknown as BotContext;
+    await handleHabitToggle(night, 6, 'habit_reminder');
+    expect(state.toggles).toEqual([[6, 180, '2026-01-11']]);
+  });
+
+  it('отметка из списка считает «сегодня» по Москве', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(Date.UTC(2026, 0, 10, 21, 30)));
+    await handleHabitToggle(ctx, 6);
+    expect(state.toggles).toEqual([[6, 180, undefined]]);
   });
 });
