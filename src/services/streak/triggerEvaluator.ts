@@ -9,7 +9,8 @@
  *   4-6 → missed_few_days, 7-13 → missed_week, 14+ → missed_long.
  * - Если вчера был покрыт freeze (FreezeUsage есть, missed=0 формально) →
  *   replacing-trigger становится `normal`, плюс добавляется overlay
- *   `freeze_used` с подсчётом freeze в инвентаре.
+ *   `freeze_used` с подсчётом freeze в инвентаре. Утром — всегда, вечером —
+ *   только если утреннее напоминание выключено.
  * - Overlay `near_milestone` добавляется только при `normal` replacing-trigger'е
  *   (при missed логически не может быть, так как стрик сломан).
  * - Overlay `perfect_week_ahead` тоже только при `normal`.
@@ -98,6 +99,11 @@ export type EvaluatorContext = {
   todayDate: string;
   /** Текущий freezeCount юзера (для freeze_used overlay при списании). */
   currentFreezeCount: number;
+  /**
+   * Утреннее напоминание включено: о вчерашней заморозке юзер узнаёт из него,
+   * в вечернем не повторяем.
+   */
+  morningEnabled: boolean;
   /** Habits и их имена/эмодзи для overlay'ев. */
   habitMetadata?: Map<number, { name: string; emoji: string }>;
 };
@@ -181,11 +187,17 @@ export const evaluateMorningTrigger = (ctx: EvaluatorContext): ReminderTrigger =
  * Evaluator для ВЕЧЕРНЕГО reminder'а.
  *
  * Logic похожая на morning, но:
- * - freeze_used overlay НЕ показывается в evening (только в morning).
+ * - freeze_used overlay — только если утреннее напоминание выключено (иначе
+ *   юзер уже видел его утром). Показывается и при all_completed.
  * - all_completed: если все due-сегодня привычки уже выполнены — replacing=all_completed.
  */
 export const evaluateEveningTrigger = (ctx: EvaluatorContext): ReminderTrigger => {
   const overlays: Overlay[] = [];
+  const yesterdayFrozen = wasFrozenYesterday(ctx);
+
+  if (yesterdayFrozen && !ctx.morningEnabled) {
+    overlays.push({ kind: 'freeze_used', remainingCount: ctx.currentFreezeCount });
+  }
 
   // Если все due-сегодня привычки выполнены — all_completed (приоритет над missed/normal).
   const todayDue = ctx.habits.filter((h) => h.isActive && isHabitDue(h, ctx.todayDate, ctx.logs));
@@ -199,8 +211,7 @@ export const evaluateEveningTrigger = (ctx: EvaluatorContext): ReminderTrigger =
     }
   }
 
-  // Missed-bucket — как у morning (но без freeze_used overlay в evening).
-  const yesterdayFrozen = wasFrozenYesterday(ctx);
+  // Missed-bucket — как у morning.
   const missedCount = yesterdayFrozen
     ? 0
     : countConsecutiveMissedDays(ctx.habits, ctx.logs, ctx.freezeUsages, ctx.todayDate);

@@ -62,6 +62,7 @@ import type {
   StreakHabit,
   StreakHabitLog,
 } from '../streak/calculator.js';
+import { FREEZE_CAP } from '../streak/freezeService.js';
 
 /**
  * Загружает контекст для триггера: привычки юзера, все логи, freeze, freezeCount.
@@ -82,7 +83,7 @@ const loadEvaluatorContext = async (
     }),
     prisma.user.findUnique({
       where: { id: userId },
-      select: { freezeCount: true },
+      select: { freezeCount: true, morningEnabled: true },
     }),
   ]);
 
@@ -108,6 +109,7 @@ const loadEvaluatorContext = async (
     freezeUsages: streakFreezes,
     todayDate,
     currentFreezeCount: user?.freezeCount ?? 0,
+    morningEnabled: user?.morningEnabled ?? true,
     habitMetadata,
   };
 };
@@ -133,6 +135,9 @@ const formatHabitNamesList = (names: string[]): string => {
  */
 const renderOverlay = (overlay: Overlay, seed: string): string => {
   if (overlay.kind === 'freeze_used') {
+    // Две заморозки после вчерашнего списания — значит, сегодня уже начислена
+    // новая: для этого случая текста нет («осталась одна» было бы неправдой).
+    if (overlay.remainingCount >= FREEZE_CAP) return '';
     const variant = pickDeterministic(FREEZE_USED_OVERLAY, seed);
     return renderTemplate(variant.text, {
       suffix: freezeUsedSuffix(overlay.remainingCount),
@@ -336,8 +341,6 @@ export const buildEveningReminder = async (
 
   // Overlays перед intro и списком — вставляем после header'а (первый абзац — фикс)
   for (const overlay of trigger.overlays) {
-    // freeze_used не показывается в evening — фильтруем
-    if (overlay.kind === 'freeze_used') continue;
     const overlaySeed = `${userId}:${todayDate}:evening:${overlay.kind}`;
     const text = renderOverlay(overlay, overlaySeed);
     if (text) {
