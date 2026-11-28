@@ -7,6 +7,9 @@ const state = vi.hoisted(() => ({
   toggles: [] as unknown[][],
   answers: [] as string[],
   log: null as null | { completed: boolean },
+  slowEarn: false,
+  earned: false,
+  earnedAtRebuild: null as boolean | null,
 }));
 
 vi.mock('../../../services/userService.js', () => ({
@@ -35,6 +38,30 @@ vi.mock('../../../utils/telegram.js', () => ({
 }));
 vi.mock('../../../services/analyticsService.js', () => ({ trackEvent: async () => undefined }));
 vi.mock('../../commands/habits.js', () => ({ showHabitsList: async () => undefined }));
+vi.mock('../../../db/index.js', () => ({
+  prisma: {
+    habit: { findMany: async () => [] },
+    habitLog: { findMany: async () => [] },
+    freezeUsage: { findMany: async () => [] },
+  },
+}));
+vi.mock('../../../services/streak/freezeService.js', () => ({
+  refundFreeze: async () => null,
+  tryEarnFreezes: async () => {
+    if (state.slowEarn) {
+      await new Promise((r) => setTimeout(r, 20));
+      state.earned = true;
+    }
+    return { kind: 'no_earn' };
+  },
+}));
+vi.mock('../../../services/streak/milestoneDelivery.js', () => ({ detectAndSendMilestones: async () => undefined }));
+vi.mock('../../../services/reminder/textBuilder.js', () => ({
+  buildEveningReminder: async () => {
+    state.earnedAtRebuild = state.earned;
+    return 'вечер';
+  },
+}));
 
 // Сообщение напоминания, отправленное 10.01 в 12:00 по Москве.
 const ctx = {
@@ -91,5 +118,16 @@ describe('handleHabitToggle: удалённая привычка', () => {
     state.habit = { id: 6, userId: 1, isActive: true, deletedDate: null, name: 'Чтение', emoji: '📚' };
     await handleHabitToggle(ctx, 6, 'habit_reminder');
     expect(state.toggles).toEqual([[6, 180, '2026-01-10']]);
+  });
+});
+
+describe('handleHabitToggle: вечерний чеклист', () => {
+  it('пересобирается после начисления заморозки за отметку', async () => {
+    state.habit = { id: 6, userId: 1, isActive: true, deletedDate: null, name: 'Чтение', emoji: '📚' };
+    state.slowEarn = true;
+    const now = { ...ctx, callbackQuery: { message: { date: Math.floor(Date.now() / 1000) } } } as unknown as BotContext;
+    await handleHabitToggle(now, 6, 'evening_reminder');
+    state.slowEarn = false;
+    expect(state.earnedAtRebuild).toBe(true);
   });
 });

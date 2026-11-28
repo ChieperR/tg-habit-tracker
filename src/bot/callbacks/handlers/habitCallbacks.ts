@@ -89,17 +89,18 @@ export const handleHabitToggle = async (
   await safeAnswerCallback(ctx, statusText);
 
   // Streak-machinery: milestone delivery + freeze refund + freeze earn (только при отметке).
-  if (newStatus && !alreadyDone) {
-    void processStreakSideEffects(
-      ctx,
-      user.id,
-      user.telegramId,
-      habitId,
-      targetDate,
-      todayDate,
-      user.freezeEnabled
-    );
-  }
+  const streakSideEffects =
+    newStatus && !alreadyDone
+      ? processStreakSideEffects(
+          ctx,
+          user.id,
+          user.telegramId,
+          habitId,
+          targetDate,
+          todayDate,
+          user.freezeEnabled
+        )
+      : undefined;
 
   if (fromHabitReminder) {
     const safeName = escapeMarkdown(habit.name);
@@ -164,6 +165,10 @@ export const handleHabitToggle = async (
       });
       return;
     }
+
+    // В чеклисте может быть строка с остатком заморозок, а отметка могла
+    // начислить новую — пересобираем после её записи.
+    await streakSideEffects;
 
     const habits = await getUserHabitsWithTodayStatus(user.id, timezoneOffset);
     const todayHabits = habits.filter((h) => h.isDueToday);

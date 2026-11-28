@@ -24,9 +24,13 @@ vi.mock('../../db/index.js', () => ({
         },
       ],
     },
-    habitLog: { findMany: async () => [{ habitId: 1, date: '2026-11-26', completed: true }] },
+    habitLog: { findMany: async () => [] },
     freezeUsage: { findMany: async () => db.freezeDates.map((date) => ({ date })) },
-    user: { findUnique: async () => db.user },
+    // Отдаём только выбранные поля, как Prisma.
+    user: {
+      findUnique: async ({ select }: { select: Record<string, boolean> }) =>
+        Object.fromEntries(Object.entries(db.user).filter(([key]) => select[key])),
+    },
   },
 }));
 
@@ -50,8 +54,8 @@ const FREEZE_LINE = '🧊';
 describe('строка о вчерашней заморозке', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    // 28.11 18:00 МСК, вчера (27.11) закрыто заморозкой
-    vi.setSystemTime(new Date('2026-11-28T15:00:00Z'));
+    // 28.11 01:30 МСК (в UTC ещё 27.11), вчера (27.11) закрыто заморозкой
+    vi.setSystemTime(new Date('2026-11-27T22:30:00Z'));
     db.freezeDates = ['2026-11-27'];
     db.user = { freezeCount: 0, morningEnabled: true };
   });
@@ -59,17 +63,14 @@ describe('строка о вчерашней заморозке', () => {
     vi.useRealTimers();
   });
 
-  it('утро выключено → в вечернем есть, с остатком заморозок', async () => {
-    db.user = { freezeCount: 0, morningEnabled: false };
+  it.each([
+    [0, 'заморозок больше нет'],
+    [1, 'осталась всего одна заморозка'],
+  ])('утро выключено, осталось %i → в вечернем «%s»', async (freezeCount, suffix) => {
+    db.user = { freezeCount, morningEnabled: false };
     const text = await buildEveningReminder(1, MSK, todayHabits);
     expect(text).toContain(FREEZE_LINE);
-    expect(text).toContain('заморозок больше нет');
-  });
-
-  it('утро выключено, осталась одна → «осталась всего одна заморозка»', async () => {
-    db.user = { freezeCount: 1, morningEnabled: false };
-    const text = await buildEveningReminder(1, MSK, todayHabits);
-    expect(text).toContain('осталась всего одна заморозка');
+    expect(text).toContain(suffix);
   });
 
   it('утро включено → в вечернем нет, в утреннем есть', async () => {
@@ -86,8 +87,9 @@ describe('строка о вчерашней заморозке', () => {
     expect(await buildMorningReminder(1, MSK, todayHabits, () => 'каждый день')).not.toContain(FREEZE_LINE);
   });
 
-  it('сегодня начислена новая и их снова две → строки нет', async () => {
+  it('сегодня начислена новая и их снова две → строки нет ни утром, ни вечером', async () => {
     db.user = { freezeCount: 2, morningEnabled: false };
     expect(await buildEveningReminder(1, MSK, todayHabits)).not.toContain(FREEZE_LINE);
+    expect(await buildMorningReminder(1, MSK, todayHabits, () => 'каждый день')).not.toContain(FREEZE_LINE);
   });
 });
