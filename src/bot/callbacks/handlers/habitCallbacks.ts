@@ -49,7 +49,7 @@ export const handleHabitToggle = async (
     return;
   }
 
-  const timezoneOffset = user.timezoneOffset ?? 0;
+  const timezoneOffset = user.timezoneOffset ?? DEFAULT_TIMEZONE_OFFSET;
   const todayDate = getTodayDate(timezoneOffset);
   // Отметка из reminder'а (evening или per-habit) засчитывается на дату
   // отправки ИМЕННО ЭТОГО сообщения, а не на текущий день. Берём
