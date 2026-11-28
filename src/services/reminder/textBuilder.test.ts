@@ -5,6 +5,7 @@ import { buildEveningReminder, buildMorningReminder } from './textBuilder.js';
 const db = vi.hoisted(() => ({
   user: { freezeCount: 0, morningEnabled: true },
   freezeDates: [] as string[],
+  logs: [] as { habitId: number; date: string; completed: boolean }[],
 }));
 
 vi.mock('../../db/index.js', () => ({
@@ -24,7 +25,7 @@ vi.mock('../../db/index.js', () => ({
         },
       ],
     },
-    habitLog: { findMany: async () => [] },
+    habitLog: { findMany: async () => db.logs },
     freezeUsage: { findMany: async () => db.freezeDates.map((date) => ({ date })) },
     // Отдаём только выбранные поля, как Prisma.
     user: {
@@ -50,6 +51,7 @@ const todayHabits: HabitWithTodayStatus[] = [
 
 const MSK = 180;
 const FREEZE_LINE = '🧊';
+const FREEZE_SHORT = '🧊 Вчерашний пропуск закрыт заморозкой. Стрик сохранён.\n';
 
 describe('строка о вчерашней заморозке', () => {
   beforeEach(() => {
@@ -58,6 +60,7 @@ describe('строка о вчерашней заморозке', () => {
     vi.setSystemTime(new Date('2026-11-27T22:30:00Z'));
     db.freezeDates = ['2026-11-27'];
     db.user = { freezeCount: 0, morningEnabled: true };
+    db.logs = [];
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -87,9 +90,18 @@ describe('строка о вчерашней заморозке', () => {
     expect(await buildMorningReminder(1, MSK, todayHabits, () => 'каждый день')).not.toContain(FREEZE_LINE);
   });
 
-  it('сегодня начислена новая и их снова две → строки нет ни утром, ни вечером', async () => {
+  it('сегодня начислена новая и их снова две → короткая строка утром и вечером', async () => {
     db.user = { freezeCount: 2, morningEnabled: false };
-    expect(await buildEveningReminder(1, MSK, todayHabits)).not.toContain(FREEZE_LINE);
-    expect(await buildMorningReminder(1, MSK, todayHabits, () => 'каждый день')).not.toContain(FREEZE_LINE);
+    expect(await buildEveningReminder(1, MSK, todayHabits)).toContain(FREEZE_SHORT);
+    expect(await buildMorningReminder(1, MSK, todayHabits, () => 'каждый день')).toContain(FREEZE_SHORT);
+  });
+
+  it('утро выключено, всё на сегодня отмечено → короткая строка вечером', async () => {
+    db.user = { freezeCount: 0, morningEnabled: false };
+    db.logs = [{ habitId: 1, date: '2026-11-28', completed: true }];
+    const done = todayHabits.map((h) => ({ ...h, completedToday: true }));
+    const text = await buildEveningReminder(1, MSK, done);
+    expect(text).toContain(FREEZE_SHORT);
+    expect(text).not.toContain('пропустить нельзя');
   });
 });

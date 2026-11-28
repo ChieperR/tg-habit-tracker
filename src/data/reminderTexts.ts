@@ -350,6 +350,12 @@ export const FREEZE_USED_OVERLAY: TextPiece[] = [
 export const FREEZE_USED_SUFFIX_ONE_LEFT = 'осталась всего одна заморозка';
 export const FREEZE_USED_SUFFIX_NONE_LEFT = 'заморозок больше нет, сегодняшний день пропустить нельзя';
 
+/**
+ * freeze_used без остатка: заморозок снова две (сегодня уже начислена новая)
+ * или в вечернем всё на сегодня уже отмечено.
+ */
+export const FREEZE_USED_SHORT = '🧊 Вчерашний пропуск закрыт заморозкой. Стрик сохранён.';
+
 // ============================================================
 // Standalone notification: freeze_earned
 // ============================================================

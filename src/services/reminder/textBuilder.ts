@@ -38,6 +38,7 @@ import {
   FREEZE_USED_OVERLAY,
   FREEZE_USED_SUFFIX_ONE_LEFT,
   FREEZE_USED_SUFFIX_NONE_LEFT,
+  FREEZE_USED_SHORT,
   NORMAL_PER_HABIT_TEMPLATES,
   HABIT_MISSED_1_DAY,
   HABIT_MISSED_N_DAYS,
@@ -133,11 +134,13 @@ const formatHabitNamesList = (names: string[]): string => {
 /**
  * Рендерит overlay-строку (без переноса строки на конце).
  */
-const renderOverlay = (overlay: Overlay, seed: string): string => {
+const renderOverlay = (overlay: Overlay, seed: string, replacing: ReplacingTrigger): string => {
   if (overlay.kind === 'freeze_used') {
-    // Две заморозки после вчерашнего списания — значит, сегодня уже начислена
-    // новая: для этого случая текста нет («осталась одна» было бы неправдой).
-    if (overlay.remainingCount >= FREEZE_CAP) return '';
+    // Остаток не к месту: две заморозки после вчерашнего списания значат, что
+    // сегодня уже начислена новая, а при all_completed день уже закрыт.
+    if (overlay.remainingCount >= FREEZE_CAP || replacing === 'all_completed') {
+      return FREEZE_USED_SHORT;
+    }
     const variant = pickDeterministic(FREEZE_USED_OVERLAY, seed);
     return renderTemplate(variant.text, {
       suffix: freezeUsedSuffix(overlay.remainingCount),
@@ -307,7 +310,7 @@ export const buildMorningReminder = async (
   // Overlays перед списком
   for (const overlay of trigger.overlays) {
     const overlaySeed = `${userId}:${todayDate}:${triggerLabel}:${overlay.kind}`;
-    const text = renderOverlay(overlay, overlaySeed);
+    const text = renderOverlay(overlay, overlaySeed, trigger.replacing);
     if (text) {
       message += text + '\n\n';
     }
@@ -342,7 +345,7 @@ export const buildEveningReminder = async (
   // Overlays перед intro и списком — вставляем после header'а (первый абзац — фикс)
   for (const overlay of trigger.overlays) {
     const overlaySeed = `${userId}:${todayDate}:evening:${overlay.kind}`;
-    const text = renderOverlay(overlay, overlaySeed);
+    const text = renderOverlay(overlay, overlaySeed, trigger.replacing);
     if (text) {
       message += text + '\n\n';
     }
