@@ -29,6 +29,7 @@ const ctxOf = (over: Partial<EvaluatorContext>): EvaluatorContext => ({
   freezeUsages: [],
   todayDate: '2026-01-10',
   currentFreezeCount: 0,
+  morningEnabled: true,
   ...over,
 });
 
@@ -109,14 +110,53 @@ describe('evaluateEveningTrigger', () => {
     expect(evaluateEveningTrigger(ctx).replacing).toBe('normal');
   });
 
-  it('freeze_used overlay НЕ показывается в evening', () => {
+  it('утро включено → freeze_used вечером не повторяется', () => {
     const ctx = ctxOf({
       habits: [daily(1, '2026-01-01')],
       freezeUsages: [freeze('2026-01-09')],
-      currentFreezeCount: 2,
+      currentFreezeCount: 1,
     });
     const result = evaluateEveningTrigger(ctx);
+    expect(result.replacing).toBe('normal');
     expect(result.overlays.some((o) => o.kind === 'freeze_used')).toBe(false);
+  });
+
+  it('утро выключено → freeze_used вечером первой строкой', () => {
+    const ctx = ctxOf({
+      habits: [daily(1, '2026-01-01')],
+      logs: [log(1, '2026-01-08')], // 01-09 закрыт заморозкой, стрик на вчера = 2 → near 3
+      freezeUsages: [freeze('2026-01-09')],
+      currentFreezeCount: 0,
+      morningEnabled: false,
+    });
+    const result = evaluateEveningTrigger(ctx);
+    expect(result.replacing).toBe('normal');
+    expect(result.overlays[0]).toEqual({ kind: 'freeze_used', remainingCount: 0 });
+    expect(result.overlays).toContainEqual({ kind: 'near_milestone_overall', milestone: 3 });
+  });
+
+  it('утро выключено, всё сегодня выполнено → all_completed + freeze_used', () => {
+    const ctx = ctxOf({
+      habits: [daily(1, '2026-01-01')],
+      logs: [log(1, '2026-01-10')],
+      freezeUsages: [freeze('2026-01-09')],
+      currentFreezeCount: 1,
+      morningEnabled: false,
+    });
+    expect(evaluateEveningTrigger(ctx)).toEqual({
+      replacing: 'all_completed',
+      overlays: [{ kind: 'freeze_used', remainingCount: 1 }],
+    });
+  });
+
+  it('утро выключено, заморозка была позавчера → freeze_used нет', () => {
+    const ctx = ctxOf({
+      habits: [daily(1, '2026-01-01')],
+      logs: [log(1, '2026-01-09')],
+      freezeUsages: [freeze('2026-01-08')],
+      morningEnabled: false,
+    });
+    expect(evaluateEveningTrigger(ctx).overlays.some((o) => o.kind === 'freeze_used')).toBe(false);
   });
 
   it('пропущенные дни → missed-bucket', () => {

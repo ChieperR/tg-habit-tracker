@@ -327,13 +327,14 @@ export const HABIT_MISSED_N_DAYS: TextPiece[] = [
 ];
 
 // ============================================================
-// Overlay: freeze_used (утренний)
+// Overlay: freeze_used
 // ============================================================
 
 /**
  * freeze_used overlay в утреннем reminder'е. Триггер: вчера были due-привычки,
  * ни одна не выполнена, freeze auto-списан. Сегодня нормальный morning +
- * overlay-строка между header и list. В вечернем не показывается.
+ * overlay-строка между header и list. В вечернем — только если утреннее
+ * напоминание выключено.
  *
  * Плейсхолдер `{suffix}`:
  * - 1 заморозка осталось → «осталась всего одна заморозка»
@@ -348,6 +349,12 @@ export const FREEZE_USED_OVERLAY: TextPiece[] = [
 /** Суффиксы для freeze_used overlay. */
 export const FREEZE_USED_SUFFIX_ONE_LEFT = 'осталась всего одна заморозка';
 export const FREEZE_USED_SUFFIX_NONE_LEFT = 'заморозок больше нет, сегодняшний день пропустить нельзя';
+
+/**
+ * freeze_used без остатка: заморозок снова две (сегодня уже начислена новая)
+ * или в вечернем всё на сегодня уже отмечено.
+ */
+export const FREEZE_USED_SHORT = '🧊 Вчерашний пропуск закрыт заморозкой. Стрик сохранён.';
 
 // ============================================================
 // Standalone notification: freeze_earned
